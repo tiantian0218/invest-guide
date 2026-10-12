@@ -1,0 +1,16 @@
+# 白名单：默认全部忽略，只放行公开网站需要的文件。个人账户、推送密钥、私人手册永远不进仓库。
+*
+!.gitignore
+!requirements.txt
+!site_app.py
+!invest.py
+!signals.py
+!market_data.py
+!.streamlit/
+!.streamlit/config.toml
+!public/
+!public/美股定投入门手册.md
+!public/美股定投入门手册.pdf
+!data/
+!data/screener.csv
+!data/hist_QQQ_SPY.csv
