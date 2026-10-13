@@ -135,6 +135,23 @@ def _colored(x, unit="$"):
     return f'<span style="color:{UP if x >= 0 else DOWN}">{"+" if x >= 0 else ""}{_money(x, unit)}</span>'
 
 
+def _signed(x, unit, digits=2):
+    return f"{'+' if x >= 0 else '−'}{unit}{abs(x):,.{digits}f}"
+
+
+def _card(label, main, sub, color=None):
+    style = f"color:{color};" if color else ""
+    return (f'<div style="padding:14px 16px;border-radius:12px;background:#f9fafb;height:100%">'
+            f'<div style="color:#6b7280;font-size:14px">{label}</div>'
+            f'<div style="font-size:28px;font-weight:700;{style}line-height:1.3">{main}</div>'
+            f'<div style="color:#6b7280;font-size:13px">{sub}</div></div>')
+
+
+def _cell(main, sub, color=None):
+    style = f' style="color:{color}"' if color else ""
+    return f'<span{style}><b>{main}</b></span><br><span style="color:#9ca3af;font-size:12px">{sub}</span>'
+
+
 def account_tab():
     if not cloud_api.enabled():
         st.info("账户功能还在准备中，敬请期待。")
@@ -159,34 +176,59 @@ def account_tab():
     try:
         prices, (usdhkd, usdcny) = _prices(tickers), _fx()
     except Exception:
-        prices, usdcny = {}, None
+        prices, usdhkd, usdcny = {}, None, None
         st.warning("行情暂时获取失败，市值按成本显示。")
     pos, sm = summarize(dep, tr, prices)
 
     if not dep and not tr:
         st.markdown("还没有记录。钱到账后先在下面**记一笔入金**，买入成交后**记一笔成交**。")
     else:
-        pnl = sm["total"] - sm["in_usd"]
+        pnl_usd = sm["total"] - sm["in_usd"]
+        pct_usd = pnl_usd / sm["in_usd"] * 100 if sm["in_usd"] else 0.0
         a, b, c = st.columns(3)
-        a.metric("总资产（美元）", _money(sm["total"]), help="持仓市值 + 现金")
-        b.metric("总盈亏", _money(pnl), f"{pnl / sm['in_usd'] * 100:+.2f}%" if sm["in_usd"] else None, delta_color="inverse")
-        c.metric("可用现金", _money(sm["cash"]))
         if usdcny:
-            st.caption(f"约合人民币 ¥{sm['total'] * usdcny:,.0f}（累计转入 ¥{sm['in_cny']:,.0f}，按今日汇率 {usdcny:.4f} 估算，"
-                       "人民币盈亏还包含汇率变化）。颜色按 A 股习惯：红涨绿跌。")
+            hkd = (lambda x: f"HK${x * usdhkd:,.0f}") if usdhkd else (lambda x: "")
+            total_cny = sm["total"] * usdcny
+            pnl_cny = total_cny - sm["in_cny"]
+            pct_cny = pnl_cny / sm["in_cny"] * 100 if sm["in_cny"] else 0.0
+            a.markdown(_card("总资产", f"¥{total_cny:,.0f}", f"${sm['total']:,.2f} · {hkd(sm['total'])}"), unsafe_allow_html=True)
+            b.markdown(_card("总盈亏（人民币）", f"{_signed(pnl_cny, '¥', 0)}（{pct_cny:+.2f}%）",
+                             f"股票本身 {_signed(pnl_usd, '$')}（{pct_usd:+.2f}%）", UP if pnl_cny >= 0 else DOWN),
+                       unsafe_allow_html=True)
+            c.markdown(_card("可用现金", f"¥{sm['cash'] * usdcny:,.0f}", f"${sm['cash']:,.2f} · {hkd(sm['cash'])}"),
+                       unsafe_allow_html=True)
+            st.caption(f"累计转入 ¥{sm['in_cny']:,.0f}。按今日汇率 1 美元 = {usdcny:.4f} 元"
+                       + (f" = {usdhkd:.4f} 港币" if usdhkd else "") + " 折算。"
+                       "人民币盈亏 = 股票涨跌 + 汇率变化 + 换汇成本，所以会和美元盈亏不同。颜色按 A 股习惯：红涨绿跌。")
+        else:
+            a.markdown(_card("总资产", _money(sm["total"]), "汇率暂时获取失败，先按美元显示"), unsafe_allow_html=True)
+            b.markdown(_card("总盈亏", f"{_signed(pnl_usd, '$')}（{pct_usd:+.2f}%）", "美元口径", UP if pnl_usd >= 0 else DOWN),
+                       unsafe_allow_html=True)
+            c.markdown(_card("可用现金", _money(sm["cash"]), "美元"), unsafe_allow_html=True)
         if len(pos):
-            show = pos.copy()
-            show["盈亏%"] = show["盈亏"] / show["成本"] * 100
+            rate = usdcny or 0
+            rows = []
+            for _, r in pos.iterrows():
+                mv, pnl = r["市值"], r["盈亏"]
+                color = (UP if pnl >= 0 else DOWN) if pd.notna(pnl) else None
+                if rate and pd.notna(mv):
+                    mv_cell = _cell(f"¥{mv * rate:,.0f}", f"${mv:,.2f}")
+                    pnl_cell = _cell(_signed(pnl * rate, "¥", 0), _signed(pnl, "$"), color)
+                else:
+                    mv_cell = f"${mv:,.2f}" if pd.notna(mv) else "—"
+                    pnl_cell = _colored(pnl) if pd.notna(pnl) else "—"
+                pct = pnl / r["成本"] * 100 if pd.notna(pnl) and r["成本"] else None
+                rows.append({
+                    "代码": r["代码"], "股数": f"{r['股数']:g}",
+                    "现价（美元）": f"${r['现价']:,.2f}" if pd.notna(r["现价"]) else "—",
+                    "平均成本（美元）": f"${r['平均成本']:,.2f}",
+                    "市值": mv_cell, "盈亏": pnl_cell,
+                    "盈亏%": f'<span style="color:{color}">{pct:+.2f}%</span>' if pct is not None else "—",
+                })
             st.markdown("**持仓**")
-            st.markdown(show.to_html(index=False, escape=False, formatters={
-                "股数": lambda x: f"{x:g}", "平均成本": lambda x: f"${x:,.2f}",
-                "现价": lambda x: f"${x:,.2f}" if pd.notna(x) else "—",
-                "市值": lambda x: f"${x:,.2f}" if pd.notna(x) else "—",
-                "盈亏": lambda x: _colored(x) if pd.notna(x) else "—",
-                "成本": lambda x: f"${x:,.2f}",
-                "盈亏%": lambda x: f'<span style="color:{UP if x >= 0 else DOWN}">{x:+.2f}%</span>' if pd.notna(x) else "—",
-            }), unsafe_allow_html=True)
-            st.caption("价格为最近收盘价，每 15 分钟更新；以银行 App 显示为准。")
+            st.markdown(pd.DataFrame(rows).to_html(index=False, escape=False), unsafe_allow_html=True)
+            st.caption("美股以美元交易，现价和成本保留美元；市值和盈亏按今日汇率折成人民币，灰色小字为美元。"
+                       "价格为最近收盘价，每 15 分钟更新；以银行 App 显示为准。")
 
     st.divider()
     c1, c2 = st.columns(2)
