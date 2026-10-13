@@ -137,11 +137,43 @@ class Session:
         if r.status_code >= 400:
             raise CloudError(_msg(r))
 
-    def rows(self, table, include_deleted=False):
-        q = f"{table}?select=*&order=date.asc,id.asc"
+    @property
+    def uid(self):
+        if not (self.tokens.get("user") or {}).get("id"):
+            url, key = config()
+            r = requests.get(f"{url}/auth/v1/user", timeout=20,
+                             headers={"apikey": key, "Authorization": f"Bearer {self.tokens['access_token']}"})
+            if r.status_code >= 400:
+                raise CloudError(_msg(r))
+            self.tokens["user"] = r.json()
+        return self.tokens["user"]["id"]
+
+    def rows(self, table, include_deleted=False, owner=None):
+        """默认只取自己的记录；开通家人共享后，数据库也会返回别人共享给你的，所以必须按 owner 过滤。"""
+        q = f"{table}?select=*&user_id=eq.{owner or self.uid}&order=date.asc,id.asc"
         if not include_deleted:
             q += "&deleted=eq.false"
         return self._req("GET", q)
+
+    # ------------------------------------------------ 家人只读共享（需先运行 cloud/share.sql）
+    def shares(self):
+        """[(行)]：既包含我发出的邀请/授权，也包含别人共享给我的。表不存在时返回 None。"""
+        try:
+            return self._req("GET", "shares?select=id,owner,owner_email,viewer,viewer_email,expires_at,code_hash"
+                                    "&order=created_at.asc")
+        except CloudError as e:
+            if "shares" in str(e) and ("does not exist" in str(e) or "schema cache" in str(e)):
+                return None
+            raise
+
+    def create_invite(self, code_hash):
+        return self._req("POST", "shares", json=[{"code_hash": code_hash}])
+
+    def remove_share(self, share_id):
+        return self._req("DELETE", f"shares?id=eq.{int(share_id)}")
+
+    def redeem(self, code):
+        return self._req("POST", "rpc/redeem_share", json={"code": code})
 
     def insert(self, table, rows):
         rows = [{k: r[k] for k in TABLES[table] if k in r} for r in rows]

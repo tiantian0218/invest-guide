@@ -1,6 +1,8 @@
 """公开网站的「我的账户」页：注册 / 登录 / 持仓盈亏 / 记账。数据存在 Supabase，每个用户只能看到自己的。"""
+import hashlib
 import html
 import json
+import secrets
 
 import pandas as pd
 import streamlit as st
@@ -232,11 +234,25 @@ def _account_body():
         _logout(s)
         st.rerun()
     try:
-        dep, tr = s.rows("deposits"), s.rows("trades")
+        shares = s.shares()
     except cloud_api.CloudError as e:
         _logout()
         st.error(f"登录已过期，请重新登录（{e}）")
         return
+    shared_to_me = [r for r in (shares or []) if r.get("viewer") == s.uid]
+    owner, readonly = s.uid, False
+    if shared_to_me:
+        names = {s.uid: "我自己的账户"} | {r["owner"]: f"{r['owner_email']} 的账户（只读）" for r in shared_to_me}
+        owner = st.selectbox("查看", list(names), format_func=names.get)
+        readonly = owner != s.uid
+    try:
+        dep, tr = s.rows("deposits", owner=owner), s.rows("trades", owner=owner)
+    except cloud_api.CloudError as e:
+        _logout()
+        st.error(f"登录已过期，请重新登录（{e}）")
+        return
+    if readonly:
+        st.info("这是家人共享给你的账户，只能查看，不能修改。")
 
     tickers = tuple(sorted({r["ticker"] for r in tr} | set(CORE)))
     try:
@@ -247,7 +263,8 @@ def _account_body():
     pos, sm = summarize(dep, tr, prices)
 
     if not dep and not tr:
-        st.markdown("还没有记录。钱到账后先在下面**记一笔入金**，买入成交后**记一笔成交**。")
+        st.markdown("这个账户还没有记录。" if readonly else
+                    "还没有记录。钱到账后先在下面**记一笔入金**，买入成交后**记一笔成交**。")
     else:
         pnl_usd = sm["total"] - sm["in_usd"]
         pct_usd = pnl_usd / sm["in_usd"] * 100 if sm["in_usd"] else 0.0
@@ -285,7 +302,7 @@ def _account_body():
                     pnl_cell = _colored(pnl) if pd.notna(pnl) else "—"
                 pct = pnl / r["成本"] * 100 if pd.notna(pnl) and r["成本"] else None
                 rows.append({
-                    "代码": r["代码"], "股数": f"{r['股数']:g}",
+                    "代码": html.escape(str(r["代码"])), "股数": f"{r['股数']:g}",
                     "现价（美元）": f"${r['现价']:,.2f}" if pd.notna(r["现价"]) else "—",
                     "平均成本（美元）": f"${r['平均成本']:,.2f}",
                     "市值": mv_cell, "盈亏": pnl_cell,
@@ -297,6 +314,9 @@ def _account_body():
                        "价格为最近收盘价，每 15 分钟更新；以银行 App 显示为准。")
 
     st.divider()
+    if readonly:
+        _records(s, dep, tr, readonly=True)
+        return
     c1, c2 = st.columns(2)
     with c1.expander("记一笔入金（钱换成美元到账后）", expanded=not dep):
         with st.form("dep", clear_on_submit=True):
@@ -324,7 +344,11 @@ def _account_body():
                 else:
                     s.insert("trades", [{"date": str(d), "ticker": t, "shares": n, "price_usd": p, "fee_usd": fee, "note": note}])
                     st.rerun()
+    _records(s, dep, tr)
+    _share_box(s, shares)
 
+
+def _records(s, dep, tr, readonly=False):
     for table, label, cols in (("deposits", "入金记录", {"date": "日期", "cny": "人民币", "usd": "美元", "note": "备注"}),
                                ("trades", "成交记录", {"date": "日期", "ticker": "代码", "shares": "股数", "price_usd": "价格",
                                                     "fee_usd": "佣金", "note": "备注"})):
@@ -334,8 +358,81 @@ def _account_body():
         with st.expander(f"{label}（{len(rows)} 条）"):
             df = pd.DataFrame(rows)
             st.dataframe(df[list(cols)].rename(columns=cols), hide_index=True)
+            if readonly:
+                continue
             pick = st.multiselect("删除记错的记录", df["id"], key=f"del_{table}",
                                   format_func=lambda i: " · ".join(str(v) for v in df.loc[df["id"] == i, list(cols)[:-1]].iloc[0]))
             if pick and st.button("确认删除", key=f"btn_{table}"):
                 s.delete(table, pick)
                 st.rerun()
+
+
+INVITE_CHARS = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
+
+
+def _hash(code):
+    return hashlib.sha256(code.strip().upper().encode()).hexdigest()
+
+
+def _share_box(s, shares):
+    with st.expander("家人共享（只读查看）"):
+        if shares is None:
+            st.info("家人共享功能还没开通：管理员需要先在数据库里运行 cloud/share.sql。")
+            return
+        now = pd.Timestamp.now(tz="UTC")
+        mine = [r for r in shares if r["owner"] == s.uid]
+        viewers = [r for r in mine if r.get("viewer")]
+        pending = [r for r in mine if not r.get("viewer") and r.get("code_hash") and pd.Timestamp(r["expires_at"]) > now]
+        to_me = [r for r in shares if r.get("viewer") == s.uid]
+
+        st.markdown("**让家人查看我的账户**：家人用**自己的账号**登录，输入你给的邀请码，就能看到你的持仓和盈亏，"
+                    "但不能记账、不能删除。你的密码不需要告诉任何人，随时可以取消。")
+        for r in viewers:
+            a, b = st.columns([4, 1])
+            a.markdown(f"✅ {html.escape(r.get('viewer_email') or '家人')} 可以查看")
+            if b.button("取消授权", key=f"rm_{r['id']}"):
+                s.remove_share(r["id"])
+                st.rerun()
+        for r in pending:
+            a, b = st.columns([4, 1])
+            exp = pd.Timestamp(r["expires_at"]).tz_convert("Asia/Shanghai")
+            a.markdown(f"⏳ 一个邀请码还没被使用（{exp:%m-%d %H:%M} 前有效）")
+            if b.button("作废", key=f"rm_{r['id']}"):
+                s.remove_share(r["id"])
+                st.rerun()
+        shown = st.session_state.pop("sb_new_invite", None)
+        if shown:
+            st.success(f"邀请码：**{shown}**  \n24 小时内有效，只能用一次。请当面或用微信发给家人，不要发到群里。")
+        with st.form("invite", clear_on_submit=True):
+            pw = st.text_input("为了确认是你本人，请再输入一次你的登录密码", type="password")
+            if st.form_submit_button("生成邀请码"):
+                try:
+                    cloud_api.sign_in(s.email, pw)
+                except cloud_api.CloudError:
+                    st.error("密码不对，没有生成邀请码")
+                else:
+                    code = "".join(secrets.choice(INVITE_CHARS) for _ in range(8))
+                    s.create_invite(_hash(code))
+                    st.session_state["sb_new_invite"] = code
+                    st.rerun()
+
+        st.divider()
+        st.markdown("**查看家人的账户**：输入家人给你的邀请码。")
+        for r in to_me:
+            a, b = st.columns([4, 1])
+            a.markdown(f"👀 你可以查看 {html.escape(r['owner_email'])} 的账户（在页面最上方切换）")
+            if b.button("不再查看", key=f"rm_{r['id']}"):
+                s.remove_share(r["id"])
+                st.rerun()
+        with st.form("redeem", clear_on_submit=True):
+            code = st.text_input("邀请码（8 位）")
+            if st.form_submit_button("确认"):
+                try:
+                    who = s.redeem(code.strip().upper())
+                    st.session_state["sb_redeemed"] = who
+                    st.rerun()
+                except cloud_api.CloudError as e:
+                    st.error(str(e))
+        who = st.session_state.pop("sb_redeemed", None)
+        if who:
+            st.success(f"成功！现在可以在页面最上方切换查看 {who} 的账户。")

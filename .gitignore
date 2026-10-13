@@ -10,6 +10,7 @@
 !cloud_api.py
 !cloud/
 !cloud/schema.sql
+!cloud/share.sql
 !.streamlit/
 !.streamlit/config.toml
 !public/
