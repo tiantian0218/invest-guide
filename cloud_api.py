@@ -20,17 +20,22 @@ class CloudError(Exception):
     pass
 
 
+def _clean(url):
+    url = url.strip().rstrip("/")
+    return url[: -len("/rest/v1")] if url.endswith("/rest/v1") else url
+
+
 def config():
     try:
         import streamlit as st
         s = st.secrets.get("supabase")
         if s and s.get("url") and s.get("anon_key"):
-            return s["url"].rstrip("/"), s["anon_key"]
+            return _clean(s["url"]), s["anon_key"].strip()
     except Exception:
         pass
     if LOCAL_CFG.exists():
         c = json.loads(LOCAL_CFG.read_text())
-        return c["url"].rstrip("/"), c["anon_key"]
+        return _clean(c["url"]), c["anon_key"].strip()
     return None
 
 
