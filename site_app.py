@@ -149,7 +149,7 @@ with tab_calc:
         fig = go.Figure(go.Histogram(x=res / 10_000, nbinsx=50, marker_color="#1e78dc"))
         fig.add_vline(x=inv / 10_000, line=dict(color=UP, dash="dash"), annotation_text="总投入")
         fig.update_layout(title="所有历史起点的结果分布（万元）", height=300, margin=dict(t=40, b=10), showlegend=False)
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig)
 
 # ---------------------------------------------------------------- 历史数据
 with tab_hist:
@@ -162,14 +162,14 @@ with tab_hist:
     fig.add_trace(go.Scatter(x=growth.index, y=growth["SPY"], name="标普 500"))
     fig.update_layout(title=f"{start} 年初投入 1 万美元，之后的价值（含分红）", height=360, hovermode="x unified",
                       margin=dict(t=50), legend=dict(orientation="h", y=-0.15))
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig)
     dd = sub / sub.cummax() - 1
     fig = go.Figure()
     fig.add_trace(go.Scatter(x=dd.index, y=dd["QQQ"] * 100, name="纳斯达克 100", fill="tozeroy"))
     fig.add_trace(go.Scatter(x=dd.index, y=dd["SPY"] * 100, name="标普 500"))
     fig.update_layout(title="从最高点跌了多少（%）", height=280, hovermode="x unified", margin=dict(t=50),
                       legend=dict(orientation="h", y=-0.2))
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig)
     st.caption("纳指 100 历史最大跌幅 −83%（2000→2002），花了约 15 年才回到前高；标普 500 最大跌幅约 −55%（2007→2009）。")
 
 # ---------------------------------------------------------------- 选股参考
