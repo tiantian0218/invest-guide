@@ -12,6 +12,7 @@ import streamlit as st
 import invest
 import market_data
 import signals
+import site_account
 
 ROOT = Path(__file__).resolve().parent
 GUIDE = ROOT / "public" / "美股定投入门手册.md"
@@ -61,7 +62,11 @@ def signed(x, fmt="+.2f", unit="%"):
 st.title("美股指数定投入门")
 st.caption("用最低的成本，买下美国最大的几百家公司，然后交给时间。所有数据来自真实历史行情；历史不代表未来，不构成投资建议。")
 
-tab_guide, tab_market, tab_calc, tab_hist, tab_pick = st.tabs(["入门手册", "今日市场", "定投计算器", "历史数据", "选股参考"])
+tab_guide, tab_market, tab_acct, tab_calc, tab_hist, tab_pick = st.tabs(
+    ["入门手册", "今日市场", "我的账户", "定投计算器", "历史数据", "选股参考"])
+
+with tab_acct:
+    site_account.account_tab()
 
 # ---------------------------------------------------------------- 入门手册
 with tab_guide:

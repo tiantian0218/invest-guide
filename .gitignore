@@ -6,6 +6,10 @@
 !invest.py
 !signals.py
 !market_data.py
+!site_account.py
+!cloud_api.py
+!cloud/
+!cloud/schema.sql
 !.streamlit/
 !.streamlit/config.toml
 !public/

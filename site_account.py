@@ -1,0 +1,223 @@
+"""公开网站的「我的账户」页：注册 / 登录 / 持仓盈亏 / 记账。数据存在 Supabase，每个用户只能看到自己的。"""
+import pandas as pd
+import streamlit as st
+
+import cloud_api
+import market_data
+
+UP, DOWN = "#d62728", "#16a34a"
+CORE = ["QQQM", "SPYM"]
+
+
+def summarize(deposits, trades, prices):
+    """返回 (持仓表, 汇总字典)。卖出时股数填负数。"""
+    tr = pd.DataFrame(trades, columns=cloud_api.TABLES["trades"])
+    dep = pd.DataFrame(deposits, columns=cloud_api.TABLES["deposits"])
+    for c in ("shares", "price_usd", "fee_usd"):
+        tr[c] = pd.to_numeric(tr[c]).fillna(0)
+    for c in ("cny", "usd"):
+        dep[c] = pd.to_numeric(dep[c]).fillna(0)
+    rows = []
+    for t, g in tr.groupby("ticker"):
+        sh = cost = 0.0
+        for _, r in g.sort_values("date").iterrows():
+            if r["shares"] > 0:
+                cost += r["shares"] * r["price_usd"] + r["fee_usd"]
+                sh += r["shares"]
+            elif sh > 0:
+                cost *= max(0.0, 1 + r["shares"] / sh)
+                sh += r["shares"]
+        if sh <= 1e-9:
+            continue
+        px = prices.get(t)
+        mv = sh * px if px else None
+        rows.append({"代码": t, "股数": sh, "平均成本": cost / sh, "现价": px, "市值": mv,
+                     "盈亏": mv - cost if mv is not None else None, "成本": cost})
+    pos = pd.DataFrame(rows)
+    spent = float((tr["shares"] * tr["price_usd"] + tr["fee_usd"]).sum())
+    cash = float(dep["usd"].sum()) - spent
+    mv = float(pos["市值"].fillna(pos["成本"]).sum()) if len(pos) else 0.0
+    return pos, {"cash": cash, "mv": mv, "total": mv + cash, "in_usd": float(dep["usd"].sum()),
+                 "in_cny": float(dep["cny"].sum()), "cost": float(pos["成本"].sum()) if len(pos) else 0.0}
+
+
+@st.cache_data(ttl=900, show_spinner=False)
+def _prices(tickers):
+    d, _ = market_data.closes(list(tickers), "6mo")
+    return {t: float(d[t].dropna().iloc[-1]) for t in tickers if t in d and d[t].notna().any()}
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def _fx():
+    return market_data.fx()
+
+
+def _session():
+    tok = st.session_state.get("sb_tokens")
+    if not tok:
+        return None
+
+    def keep(new):
+        st.session_state["sb_tokens"] = new
+    return cloud_api.Session(tok, on_refresh=keep)
+
+
+def _login_box():
+    st.markdown("登录后可以记录**自己的**入金和成交，网站自动算持仓和盈亏。每个人只能看到自己的数据。")
+    st.caption("请设置一个**新的**密码，不要和银行、邮箱的密码相同。本网站永远不会向你索要银行账号密码。")
+    mode = st.radio("操作", ["登录", "注册新账号", "忘记密码"], horizontal=True, label_visibility="collapsed")
+    if mode == "登录":
+        with st.form("login"):
+            email = st.text_input("邮箱")
+            pw = st.text_input("密码", type="password")
+            if st.form_submit_button("登录", type="primary"):
+                try:
+                    st.session_state["sb_tokens"] = cloud_api.sign_in(email.strip(), pw)
+                    st.rerun()
+                except cloud_api.CloudError as e:
+                    st.error(str(e))
+    elif mode == "注册新账号":
+        with st.form("signup"):
+            email = st.text_input("邮箱")
+            pw = st.text_input("密码（至少 8 位）", type="password")
+            pw2 = st.text_input("再输一次密码", type="password")
+            if st.form_submit_button("注册", type="primary"):
+                if pw != pw2:
+                    st.error("两次密码不一样")
+                elif len(pw) < 8:
+                    st.error("密码至少 8 位")
+                else:
+                    try:
+                        r = cloud_api.sign_up(email.strip(), pw)
+                        if r.get("access_token"):
+                            st.session_state["sb_tokens"] = r
+                            st.rerun()
+                        st.success("注册成功！请到邮箱点击确认链接（可能在垃圾邮件里），然后回来登录。")
+                    except cloud_api.CloudError as e:
+                        st.error(str(e))
+    else:
+        email = st.text_input("注册时用的邮箱", key="rs_email")
+        if st.button("发送验证码"):
+            try:
+                cloud_api.reset_password(email.strip())
+                st.success("如果这个邮箱注册过，验证码已发出（注意查看垃圾邮件）。")
+            except cloud_api.CloudError as e:
+                st.error(str(e))
+        with st.form("reset"):
+            code = st.text_input("邮件里的 6 位验证码")
+            pw = st.text_input("新密码（至少 8 位）", type="password")
+            if st.form_submit_button("重设密码"):
+                try:
+                    s = cloud_api.Session(cloud_api.verify_recovery(email.strip(), code))
+                    s.update_password(pw)
+                    st.session_state["sb_tokens"] = s.tokens
+                    st.success("密码已更新，已为你登录。")
+                    st.rerun()
+                except cloud_api.CloudError as e:
+                    st.error(str(e))
+
+
+def _money(x, unit="$"):
+    return f"{'−' if x < 0 else ''}{unit}{abs(x):,.2f}"
+
+
+def _colored(x, unit="$"):
+    return f'<span style="color:{UP if x >= 0 else DOWN}">{"+" if x >= 0 else ""}{_money(x, unit)}</span>'
+
+
+def account_tab():
+    if not cloud_api.enabled():
+        st.info("账户功能还在准备中，敬请期待。")
+        return
+    s = _session()
+    if s is None:
+        _login_box()
+        return
+    c1, c2 = st.columns([4, 1])
+    c1.caption(f"已登录：{s.email}")
+    if c2.button("退出登录"):
+        st.session_state.pop("sb_tokens", None)
+        st.rerun()
+    try:
+        dep, tr = s.rows("deposits"), s.rows("trades")
+    except cloud_api.CloudError as e:
+        st.session_state.pop("sb_tokens", None)
+        st.error(f"登录已过期，请重新登录（{e}）")
+        return
+
+    tickers = tuple(sorted({r["ticker"] for r in tr} | set(CORE)))
+    try:
+        prices, (usdhkd, usdcny) = _prices(tickers), _fx()
+    except Exception:
+        prices, usdcny = {}, None
+        st.warning("行情暂时获取失败，市值按成本显示。")
+    pos, sm = summarize(dep, tr, prices)
+
+    if not dep and not tr:
+        st.markdown("还没有记录。钱到账后先在下面**记一笔入金**，买入成交后**记一笔成交**。")
+    else:
+        pnl = sm["total"] - sm["in_usd"]
+        a, b, c = st.columns(3)
+        a.metric("总资产（美元）", _money(sm["total"]), help="持仓市值 + 现金")
+        b.metric("总盈亏", _money(pnl), f"{pnl / sm['in_usd'] * 100:+.2f}%" if sm["in_usd"] else None, delta_color="inverse")
+        c.metric("可用现金", _money(sm["cash"]))
+        if usdcny:
+            st.caption(f"约合人民币 ¥{sm['total'] * usdcny:,.0f}（累计转入 ¥{sm['in_cny']:,.0f}，按今日汇率 {usdcny:.4f} 估算，"
+                       "人民币盈亏还包含汇率变化）。颜色按 A 股习惯：红涨绿跌。")
+        if len(pos):
+            show = pos.copy()
+            show["盈亏%"] = show["盈亏"] / show["成本"] * 100
+            st.markdown("**持仓**")
+            st.markdown(show.to_html(index=False, escape=False, formatters={
+                "股数": lambda x: f"{x:g}", "平均成本": lambda x: f"${x:,.2f}",
+                "现价": lambda x: f"${x:,.2f}" if pd.notna(x) else "—",
+                "市值": lambda x: f"${x:,.2f}" if pd.notna(x) else "—",
+                "盈亏": lambda x: _colored(x) if pd.notna(x) else "—",
+                "成本": lambda x: f"${x:,.2f}",
+                "盈亏%": lambda x: f'<span style="color:{UP if x >= 0 else DOWN}">{x:+.2f}%</span>' if pd.notna(x) else "—",
+            }), unsafe_allow_html=True)
+            st.caption("价格为最近收盘价，每 15 分钟更新；以银行 App 显示为准。")
+
+    st.divider()
+    c1, c2 = st.columns(2)
+    with c1.expander("记一笔入金（钱换成美元到账后）", expanded=not dep):
+        with st.form("dep", clear_on_submit=True):
+            d = st.date_input("到账日期")
+            cny = st.number_input("转出的人民币", min_value=0.0, value=0.0, step=500.0)
+            usd = st.number_input("到账美元", min_value=0.0, value=0.0, step=1.0)
+            note = st.text_input("备注（可不填）")
+            if st.form_submit_button("保存入金"):
+                if usd <= 0:
+                    st.error("请填写到账美元")
+                else:
+                    s.insert("deposits", [{"date": str(d), "cny": cny, "usd": usd, "note": note}])
+                    st.rerun()
+    with c2.expander("记一笔成交（买入成交后）", expanded=bool(dep) and not tr):
+        with st.form("trade", clear_on_submit=True):
+            d = st.date_input("成交日期")
+            t = st.text_input("代码", value="QQQM").strip().upper()
+            n = st.number_input("股数（卖出填负数）", value=1.0, step=1.0)
+            p = st.number_input("成交价（美元）", min_value=0.0, value=0.0, step=0.01, format="%.2f")
+            fee = st.number_input("佣金（美元）", min_value=0.0, value=0.0, step=1.0)
+            note = st.text_input("备注（可不填）")
+            if st.form_submit_button("保存成交"):
+                if not t or p <= 0 or n == 0:
+                    st.error("请填写代码、股数和成交价")
+                else:
+                    s.insert("trades", [{"date": str(d), "ticker": t, "shares": n, "price_usd": p, "fee_usd": fee, "note": note}])
+                    st.rerun()
+
+    for table, label, cols in (("deposits", "入金记录", {"date": "日期", "cny": "人民币", "usd": "美元", "note": "备注"}),
+                               ("trades", "成交记录", {"date": "日期", "ticker": "代码", "shares": "股数", "price_usd": "价格",
+                                                    "fee_usd": "佣金", "note": "备注"})):
+        rows = dep if table == "deposits" else tr
+        if not rows:
+            continue
+        with st.expander(f"{label}（{len(rows)} 条）"):
+            df = pd.DataFrame(rows)
+            st.dataframe(df[list(cols)].rename(columns=cols), hide_index=True)
+            pick = st.multiselect("删除记错的记录", df["id"], key=f"del_{table}",
+                                  format_func=lambda i: " · ".join(str(v) for v in df.loc[df["id"] == i, list(cols)[:-1]].iloc[0]))
+            if pick and st.button("确认删除", key=f"btn_{table}"):
+                s.delete(table, pick)
+                st.rerun()
