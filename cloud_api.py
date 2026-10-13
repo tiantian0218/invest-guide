@@ -85,6 +85,17 @@ def refresh(refresh_token):
     return _auth("token", {"refresh_token": refresh_token}, grant_type="refresh_token")
 
 
+def logout(access_token):
+    """让这次登录在服务器端失效（续期令牌一并作废）。网络失败时忽略，本地照样退出。"""
+    url, key = config()
+    try:
+        # scope=local：只退出当前设备；默认 global 会把电脑同步等其他设备一起踢下线
+        requests.post(f"{url}/auth/v1/logout", params={"scope": "local"}, headers={"apikey": key, "Authorization": f"Bearer {access_token}"},
+                      timeout=10)
+    except requests.RequestException:
+        pass
+
+
 def reset_password(email, redirect=None):
     return _auth("recover", {"email": email}, redirect_to=redirect)
 

@@ -1,12 +1,18 @@
 """公开网站的「我的账户」页：注册 / 登录 / 持仓盈亏 / 记账。数据存在 Supabase，每个用户只能看到自己的。"""
+import html
+import json
+
 import pandas as pd
 import streamlit as st
+import streamlit.components.v1 as components
 
 import cloud_api
 import market_data
 
 UP, DOWN = "#d62728", "#16a34a"
 CORE = ["QQQM", "SPYM"]
+COOKIE = "ig_rt"
+COOKIE_DAYS = 30
 
 
 def summarize(deposits, trades, prices):
@@ -52,14 +58,60 @@ def _fx():
     return market_data.fx()
 
 
-def _session():
-    tok = st.session_state.get("sb_tokens")
-    if not tok:
+def _cookie():
+    return st.context.cookies.get(COOKIE)
+
+
+def _set_tokens(tokens, remember=None):
+    st.session_state["sb_tokens"] = tokens
+    if remember is not None:
+        st.session_state["sb_remember"] = remember
+    st.session_state.pop("sb_logged_out", None)
+
+
+def _read_cookie():
+    try:
+        return st.context.cookies.get(COOKIE)
+    except Exception:
         return None
 
-    def keep(new):
-        st.session_state["sb_tokens"] = new
-    return cloud_api.Session(tok, on_refresh=keep)
+
+def _saved_refresh_token():
+    try:
+        return st.context.cookies.get(COOKIE)
+    except Exception:
+        return None
+
+
+def _session():
+    tok = st.session_state.get("sb_tokens")
+    if not tok and not st.session_state.get("sb_logged_out"):
+        rt = _read_cookie()
+        if rt:
+            try:
+                tok = cloud_api.refresh(rt)
+                _set_tokens(tok, remember=True)
+            except Exception:
+                st.session_state["sb_logged_out"] = True
+    if not tok:
+        return None
+    return cloud_api.Session(tok, on_refresh=_set_tokens)
+
+
+def _sync_cookie():
+    """Supabase 的续期令牌每次使用后都会换新，所以每次运行结束都把最新的写回浏览器。"""
+    tok = st.session_state.get("sb_tokens")
+    if tok and st.session_state.get("sb_remember"):
+        value, age = tok["refresh_token"], COOKIE_DAYS * 86400
+    elif st.session_state.get("sb_logged_out") or (tok and not st.session_state.get("sb_remember")):
+        value, age = "", 0
+    else:
+        return
+    if st.session_state.get("sb_cookie_written") == (value, age):
+        return
+    st.session_state["sb_cookie_written"] = (value, age)
+    cookie = json.dumps(f"{COOKIE}={value}; path=/; max-age={age}; SameSite=Lax; Secure")
+    components.html(f"<script>try{{parent.document.cookie={cookie}}}catch(e){{document.cookie={cookie}}}</script>", height=0)
 
 
 def _reset_by_email():
@@ -78,9 +130,11 @@ def _login_box():
         with st.form("login"):
             email = st.text_input("邮箱")
             pw = st.text_input("密码", type="password")
+            remember = st.checkbox(f"在这台设备上保持登录（{COOKIE_DAYS} 天）", value=True,
+                                   help="公用电脑请不要勾选")
             if st.form_submit_button("登录", type="primary"):
                 try:
-                    st.session_state["sb_tokens"] = cloud_api.sign_in(email.strip(), pw)
+                    _set_tokens(cloud_api.sign_in(email.strip(), pw), remember=remember)
                     st.rerun()
                 except cloud_api.CloudError as e:
                     st.error(str(e))
@@ -152,10 +206,22 @@ def _cell(main, sub, color=None):
     return f'<span{style}><b>{main}</b></span><br><span style="color:#9ca3af;font-size:12px">{sub}</span>'
 
 
+def _logout(s=None):
+    if s is not None:
+        cloud_api.logout(s.tokens["access_token"])
+    st.session_state.pop("sb_tokens", None)
+    st.session_state["sb_logged_out"] = True
+
+
 def account_tab():
     if not cloud_api.enabled():
         st.info("账户功能还在准备中，敬请期待。")
         return
+    _account_body()
+    _sync_cookie()
+
+
+def _account_body():
     s = _session()
     if s is None:
         _login_box()
@@ -163,12 +229,12 @@ def account_tab():
     c1, c2 = st.columns([4, 1])
     c1.caption(f"已登录：{s.email}")
     if c2.button("退出登录"):
-        st.session_state.pop("sb_tokens", None)
+        _logout(s)
         st.rerun()
     try:
         dep, tr = s.rows("deposits"), s.rows("trades")
     except cloud_api.CloudError as e:
-        st.session_state.pop("sb_tokens", None)
+        _logout()
         st.error(f"登录已过期，请重新登录（{e}）")
         return
 
