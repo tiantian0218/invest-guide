@@ -62,6 +62,14 @@ def _session():
     return cloud_api.Session(tok, on_refresh=keep)
 
 
+def _reset_by_email():
+    """接入自有发信服务（SMTP）并在邮件模板里加入 {{ .Token }} 后，在 Secrets 里设 reset_by_email = true。"""
+    try:
+        return bool(st.secrets["supabase"].get("reset_by_email"))
+    except Exception:
+        return False
+
+
 def _login_box():
     st.markdown("登录后可以记录**自己的**入金和成交，网站自动算持仓和盈亏。每个人只能看到自己的数据。")
     st.caption("请设置一个**新的**密码，不要和银行、邮箱的密码相同。本网站永远不会向你索要银行账号密码。")
@@ -92,9 +100,11 @@ def _login_box():
                         if r.get("access_token"):
                             st.session_state["sb_tokens"] = r
                             st.rerun()
-                        st.success("注册成功！请到邮箱点击确认链接（可能在垃圾邮件里），然后回来登录。")
+                        st.success("注册成功！请切换到「登录」。如果提示邮箱未验证，请到邮箱点击确认链接（可能在垃圾邮件里）。")
                     except cloud_api.CloudError as e:
                         st.error(str(e))
+    elif not _reset_by_email():
+        st.info("忘记密码暂时需要联系网站管理员处理。请把密码记在手机备忘录或密码管理器里。")
     else:
         email = st.text_input("注册时用的邮箱", key="rs_email")
         if st.button("发送验证码"):
