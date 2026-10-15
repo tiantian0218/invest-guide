@@ -313,6 +313,7 @@ def _account_body():
             st.caption("美股以美元交易，现价和成本保留美元；市值和盈亏按今日汇率折成人民币，灰色小字为美元。"
                        "价格为最近收盘价，每 15 分钟更新；以银行 App 显示为准。")
 
+    _paper_box(s, owner)
     st.divider()
     if readonly:
         _records(s, dep, tr, readonly=True)
@@ -436,3 +437,50 @@ def _share_box(s, shares):
         who = st.session_state.pop("sb_redeemed", None)
         if who:
             st.success(f"成功！现在可以在页面最上方切换查看 {who} 的账户。")
+
+
+def _paper_box(s, owner):
+    try:
+        snap = s.get_paper(owner)
+    except cloud_api.CloudError:
+        return
+    if not snap:
+        return
+    p = snap["payload"]
+    st_ = p.get("stats") or {}
+    bt = p.get("backtest", {})
+    updated = pd.Timestamp(snap["updated_at"]).tz_convert("Asia/Shanghai")
+    with st.expander(f"短线实验（模拟盘，不花钱）· 更新于 {updated:%m-%d %H:%M}", expanded=True):
+        st.warning("**只记账、不下单，不构成任何买卖建议。** 跑满 2 个月（约 40 笔已结束）再评估。"
+                   f"历史回测 {bt.get('次数', '—')} 次：胜率 {bt.get('胜率', 0):.0%}，平均 {bt.get('平均', 0):+.1%}，"
+                   f"但中位数 {bt.get('中位数', 0):+.1%}——多数时候小亏，靠极少数暴涨股拉高平均，接近买彩票。")
+        a, b, c = st.columns(3)
+        a.markdown(_card("已记录信号", f"{st_.get('信号', 0)}",
+                         f"{st_.get('已卖出', 0)} 笔已结束 · {st_.get('持有中', 0)} 笔持有中"), unsafe_allow_html=True)
+        for col, label, key, sub in ((b, "理论账", "理论账盈亏", f"每个信号 ¥{p.get('stake', 1000):,}"),
+                                     (c, "实际账", "实际账盈亏", f"最多同时 {p.get('slots', 3)} 只")):
+            v = st_.get(key, 0.0) or 0.0
+            col.markdown(_card(label, _signed(v, "¥", 0), sub, UP if v >= 0 else DOWN), unsafe_allow_html=True)
+        if not p.get("trades"):
+            st.caption(f"从 {p.get('start')} 开始记录，还没有触发信号。")
+        st.markdown(f"**今晚观察名单**（数据截至美东 {p.get('asof') or '—'}；开盘价 ≥ 触发价才记一笔模拟买入）")
+        if p.get("watch"):
+            w = pd.DataFrame(p["watch"])
+            st.dataframe(pd.DataFrame({
+                "代码": w["ticker"], "昨收": w["close"].map("${:,.2f}".format), "触发价": w["trigger"].map("${:,.2f}".format),
+                "近3日最大单日涨幅": w["big_day"].map("{:+.0%}".format), "放量倍数": w["vol_x"].map("{:.1f}x".format),
+            }), hide_index=True)
+        else:
+            st.caption("今天没有符合条件的股票。")
+        if p.get("trades"):
+            t = pd.DataFrame(p["trades"])
+            st.markdown("**模拟成交记录**")
+            st.dataframe(pd.DataFrame({
+                "买入日": t["date"], "代码": t["ticker"], "买入价": t["entry"], "卖出日": t["exit_date"].fillna("—"),
+                "卖出价": t["exit"], "状态": t["status"], "收益": t["ret"].map("{:+.1%}".format),
+                "实际账": t["real"].map({True: "✓", False: "满仓跳过"}),
+            }), hide_index=True)
+        r = p.get("rules", {})
+        st.caption(f"规则：美股市值 3–45 亿美元的中小盘；过去 {r.get('lookback', 3)} 个交易日内有过单日 ≥+{r.get('big', 0.1):.0%} 大涨、"
+                   f"且前一交易日放量 ≥{r.get('vol_mult', 3):.0f} 倍的进入观察名单；当晚开盘跳空 ≥+{r.get('gap', 0.05):.0%} 记模拟买入，"
+                   f"第 {p.get('hold', 5)} 个交易日开盘卖出；已扣来回成本 {p.get('cost', 0.003):.1%}。")

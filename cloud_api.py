@@ -4,6 +4,7 @@
 anon_key 是可公开的前端密钥，数据隔离靠数据库的行级安全规则；service_role 密钥永远不要放进来。
 """
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 
 import requests
@@ -116,16 +117,16 @@ class Session:
     def email(self):
         return (self.tokens.get("user") or {}).get("email", "")
 
-    def _req(self, method, path, retry=True, **kw):
+    def _req(self, method, path, retry=True, prefer="return=representation", **kw):
         url, key = config()
         h = {"apikey": key, "Authorization": f"Bearer {self.tokens['access_token']}",
-             "Content-Type": "application/json", "Prefer": "return=representation"}
+             "Content-Type": "application/json", "Prefer": prefer}
         r = requests.request(method, f"{url}/rest/v1/{path}", headers=h, timeout=20, **kw)
         if r.status_code == 401 and retry:
             self.tokens = refresh(self.tokens["refresh_token"])
             if self.on_refresh:
                 self.on_refresh(self.tokens)
-            return self._req(method, path, retry=False, **kw)
+            return self._req(method, path, retry=False, prefer=prefer, **kw)
         if r.status_code >= 400:
             raise CloudError(_msg(r))
         return r.json() if r.text else []
@@ -171,6 +172,21 @@ class Session:
 
     def remove_share(self, share_id):
         return self._req("DELETE", f"shares?id=eq.{int(share_id)}")
+
+    # ------------------------------------------------ 短线模拟盘快照（需先运行 cloud/short_term.sql）
+    def put_paper(self, payload):
+        return self._req("POST", "paper?on_conflict=user_id", json=[{"payload": payload, "updated_at": datetime.now(timezone.utc).isoformat()}],
+                         prefer="resolution=merge-duplicates,return=minimal")
+
+    def get_paper(self, owner=None):
+        """返回 {payload, updated_at}；表不存在或没有数据时返回 None。"""
+        try:
+            rows = self._req("GET", f"paper?select=payload,updated_at&user_id=eq.{owner or self.uid}")
+        except CloudError as e:
+            if "paper" in str(e) and ("does not exist" in str(e) or "schema cache" in str(e)):
+                return None
+            raise
+        return rows[0] if rows else None
 
     def redeem(self, code):
         return self._req("POST", "rpc/redeem_share", json={"code": code})

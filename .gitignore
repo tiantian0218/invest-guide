@@ -11,6 +11,7 @@
 !cloud/
 !cloud/schema.sql
 !cloud/share.sql
+!cloud/short_term.sql
 !.streamlit/
 !.streamlit/config.toml
 !public/
