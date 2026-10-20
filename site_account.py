@@ -262,6 +262,7 @@ def _account_body():
         st.warning("行情暂时获取失败，市值按成本显示。")
     pos, sm = summarize(dep, tr, prices)
 
+    _signal_box(s, owner)
     if not dep and not tr:
         st.markdown("这个账户还没有记录。" if readonly else
                     "还没有记录。钱到账后先在下面**记一笔入金**，买入成交后**记一笔成交**。")
@@ -437,6 +438,37 @@ def _share_box(s, shares):
         who = st.session_state.pop("sb_redeemed", None)
         if who:
             st.success(f"成功！现在可以在页面最上方切换查看 {who} 的账户。")
+
+
+def _signal_box(s, owner):
+    try:
+        snap = s.get_paper(owner)
+    except cloud_api.CloudError:
+        return
+    sig = ((snap or {}).get("payload") or {}).get("signals")
+    if not sig:
+        return
+    updated = pd.Timestamp(snap["updated_at"]).tz_convert("Asia/Shanghai")
+    age = (pd.Timestamp.now(tz="Asia/Shanghai").normalize() - pd.Timestamp(sig["date"]).tz_localize("Asia/Shanghai")).days
+    rows = ""
+    for r in sig["rows"]:
+        chg = f'<span style="color:{UP if r["chg"] >= 0 else DOWN}"> {r["chg"]:+.2%}</span>' if r.get("chg") is not None else ""
+        rows += (f'<div style="display:flex;gap:10px;align-items:flex-start;padding:10px 0;border-top:1px solid #eef0f3">'
+                 f'<span style="background:{r["color"]};color:#fff;border-radius:6px;padding:2px 8px;font-weight:700;'
+                 f'white-space:nowrap;font-size:14px">{html.escape(r["signal"])}</span>'
+                 f'<div><div style="font-weight:600">{html.escape(r["asset"])}{chg}</div>'
+                 f'<div style="font-size:14px;line-height:1.5">{html.escape(r["why"])}</div>'
+                 f'<div style="font-size:12px;color:#9ca3af">规则：{html.escape(r["rule"])}</div></div></div>')
+    stale = (f'<div style="color:#d97706;font-size:13px">这是 {age} 天前的信号（电脑当天可能没开机），以汇丰 App 的价格为准。</div>'
+             if age > 0 else "")
+    st.markdown(
+        f'<div style="padding:14px 16px;border-radius:12px;background:#f9fafb;margin:6px 0 12px">'
+        f'<div style="display:flex;justify-content:space-between;align-items:baseline">'
+        f'<b style="font-size:18px">今日信号</b><span style="color:#6b7280;font-size:12px">更新于 {updated:%m-%d %H:%M}</span></div>'
+        f'<div style="font-size:15px;margin:4px 0 2px">今天要做的：<b>{html.escape(sig["headline"])}</b></div>{stale}'
+        f'{rows}</div>', unsafe_allow_html=True)
+    st.caption("红色标签 = 买入 / 加码，绿色 = 卖出 / 考虑卖出，蓝色 = 持有不动，灰色 = 只观察。"
+               "信号全部来自写死的规则，不构成投资建议；工具不会替你下单。")
 
 
 def _paper_box(s, owner):

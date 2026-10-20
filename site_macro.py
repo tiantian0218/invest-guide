@@ -72,6 +72,38 @@ def _safe(fn, what):
         st.info(f"{what}暂时获取失败，请稍后刷新。（{type(e).__name__}）")
 
 
+# ---------------------------------------------------------------- ⓪ 今日信号（通用）
+@st.cache_data(ttl=1800, show_spinner=False)
+def _index_closes():
+    import market_data
+    d, _ = market_data.closes(["QQQM", "SPYM", "QQQ"], "2y")
+    return d
+
+
+def _signal():
+    d = _index_closes()
+    rows = ""
+    for t, name in (("QQQM", "纳指 100"), ("SPYM", "标普 500")):
+        c = d[t].dropna()
+        if t == "QQQM" and "QQQ" in d:
+            c = d["QQQ"].dropna()
+        dd = float(c.iloc[-1] / c.iloc[-252:].max() - 1)
+        chg = float(c.iloc[-1] / c.iloc[-2] - 1)
+        if dd <= -0.20:
+            sig, color, why = "加码", UP, f"距一年高点 {dd:.0%}，进入大跌区。历史上这时用新增的钱（不是借钱）多买一些，长期回报更好。"
+        else:
+            sig, color, why = "按计划买", "#1e78dc", (f"距一年高点 {dd:.0%}。定投日照常买，其他日子不用操作；"
+                                                    "不因为涨了追加，也不因为跌了卖出。")
+        rows += (f'<div style="display:flex;gap:10px;align-items:flex-start;padding:10px 0;border-top:1px solid #eef0f3">'
+                 f'<span style="background:{color};color:#fff;border-radius:6px;padding:2px 8px;font-weight:700;white-space:nowrap">{sig}</span>'
+                 f'<div><b>{t} · {name}</b> <span style="color:{UP if chg >= 0 else DOWN}">{chg:+.2%}</span>'
+                 f'<div style="font-size:14px;line-height:1.5">{why}</div></div></div>')
+    st.markdown(_box(f'<b style="font-size:17px">给指数定投者的信号</b>{rows}'), unsafe_allow_html=True)
+    st.caption("指数没有“卖出信号”：只在你需要用钱、或接近目标时按计划慢慢卖。我们用 1999 年以来的数据测过，"
+               "按利率、恐慌指数等宏观数据择时，结果都不如按时定投，所以下面的宏观内容只用来理解市场。"
+               "登录后在「我的账户」能看到你自己的完整信号（包括个股止损）。")
+
+
 # ---------------------------------------------------------------- ① 今天为什么涨跌
 def _today():
     w = _why()
@@ -283,7 +315,7 @@ def _lesson_box():
 def render():
     st.markdown("这一页帮你看懂**市场为什么这样动**：利率、通胀、产业链和大资金在想什么。"
                 "内容只用于学习和理解，**不是买卖建议**；你的定投计划不需要因此改变。")
-    sections = [("① 今天为什么涨跌", _today, "涨跌解读"), ("② 接下来的大事", _events, "宏观日历"),
+    sections = [("今日信号", _signal, "信号"), ("① 今天为什么涨跌", _today, "涨跌解读"), ("② 接下来的大事", _events, "宏观日历"),
                 ("③ 利率：钱的价格", _rates, "利率数据"), ("④ 通胀和就业", _economy_box, "经济数据"),
                 ("⑤ AI 产业链地图", _chain_box, "产业链行情"), ("⑥ 大佬在买什么（13F 持仓）", _f13_box, "持仓报告"),
                 ("⑦ 每日一课", _lesson_box, "课程")]
