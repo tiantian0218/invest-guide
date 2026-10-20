@@ -3,6 +3,7 @@ import hashlib
 import html
 import json
 import secrets
+from pathlib import Path
 
 import pandas as pd
 import streamlit as st
@@ -60,8 +61,7 @@ def _fx():
     return market_data.fx()
 
 
-def _cookie():
-    return st.context.cookies.get(COOKIE)
+_cookie_bridge = components.declare_component("cookie_bridge", path=str(Path(__file__).parent / "cookie_bridge"))
 
 
 def _set_tokens(tokens, remember=None):
@@ -72,23 +72,21 @@ def _set_tokens(tokens, remember=None):
 
 
 def _read_cookie():
+    """本机能从请求头读到；Streamlit Cloud 的代理会去掉自定义 cookie，只能等浏览器端组件回传。
+    返回 None 表示浏览器还没回话，"" 表示确实没有。"""
     try:
-        return st.context.cookies.get(COOKIE)
+        rt = st.context.cookies.get(COOKIE)
     except Exception:
-        return None
-
-
-def _saved_refresh_token():
-    try:
-        return st.context.cookies.get(COOKIE)
-    except Exception:
-        return None
+        rt = None
+    return rt or _cookie_bridge(name=COOKIE, key="cookie_bridge", default=None)
 
 
 def _session():
     tok = st.session_state.get("sb_tokens")
     if not tok and not st.session_state.get("sb_logged_out"):
         rt = _read_cookie()
+        if rt is None:
+            st.session_state["sb_cookie_pending"] = True
         if rt:
             try:
                 tok = cloud_api.refresh(rt)
@@ -226,6 +224,8 @@ def account_tab():
 def _account_body():
     s = _session()
     if s is None:
+        if st.session_state.pop("sb_cookie_pending", False):
+            st.caption("正在恢复上次的登录…")
         _login_box()
         return
     c1, c2 = st.columns([4, 1])

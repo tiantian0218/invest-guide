@@ -20,3 +20,5 @@
 !data/
 !data/screener.csv
 !data/hist_QQQ_SPY.csv
+!cookie_bridge/
+!cookie_bridge/index.html

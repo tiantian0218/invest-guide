@@ -1,0 +1,24 @@
+<!doctype html>
+<html><body><script>
+// Streamlit Cloud 的代理不会把自定义 cookie 转给服务端，所以由浏览器读出后通过组件值回传。
+function send(type, extra) {
+  window.parent.postMessage(Object.assign({isStreamlitMessage: true, type: type}, extra), "*");
+}
+function read(name) {
+  for (const doc of [document, window.parent.document]) {
+    try {
+      const hit = doc.cookie.split("; ").find(c => c.startsWith(name + "="));
+      if (hit) return decodeURIComponent(hit.slice(name.length + 1));
+    } catch (e) {}
+  }
+  return "";
+}
+let sent = false;
+window.addEventListener("message", e => {
+  if (!e.data || e.data.type !== "streamlit:render" || sent) return;
+  sent = true;
+  send("streamlit:setFrameHeight", {height: 0});
+  send("streamlit:setComponentValue", {value: read((e.data.args || {}).name), dataType: "json"});
+});
+send("streamlit:componentReady", {apiVersion: 1});
+</script></body></html>
