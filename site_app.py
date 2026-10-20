@@ -2,6 +2,7 @@
 
 本地预览：.venv/bin/streamlit run site_app.py --server.port 8502
 """
+import importlib
 from pathlib import Path
 
 import numpy as np
@@ -9,10 +10,17 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
+import cloud_api
 import invest
 import market_data
 import signals
 import site_account
+
+# Streamlit Cloud 拉到新代码后只重新执行本文件，已导入的本地模块会一直是旧版，直到应用重启。
+for _mod in (market_data, signals, invest, cloud_api, site_account):
+    _mtime = Path(_mod.__file__).stat().st_mtime
+    if getattr(_mod, "_loaded_mtime", None) != _mtime:
+        importlib.reload(_mod)._loaded_mtime = _mtime
 
 ROOT = Path(__file__).resolve().parent
 GUIDE = ROOT / "public" / "美股定投入门手册.md"
