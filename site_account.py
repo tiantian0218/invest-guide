@@ -476,8 +476,10 @@ def _paper_box(s, owner):
             t = pd.DataFrame(p["trades"])
             st.markdown("**模拟成交记录**")
             st.dataframe(pd.DataFrame({
-                "买入日": t["date"], "代码": t["ticker"], "买入价": t["entry"], "卖出日": t["exit_date"].fillna("—"),
-                "卖出价": t["exit"], "状态": t["status"], "收益": t["ret"].map("{:+.1%}".format),
+                "买入日": t["date"], "代码": t["ticker"], "买入价": t["entry"].map("${:,.2f}".format),
+                "卖出日": t["exit_date"].fillna("—"),
+                "卖出价": pd.to_numeric(t["exit"], errors="coerce").map(lambda x: "—" if pd.isna(x) else f"${x:,.2f}"),
+                "状态": t["status"], "收益": t["ret"].map("{:+.1%}".format),
                 "实际账": t["real"].map({True: "✓", False: "满仓跳过"}),
             }), hide_index=True)
         r = p.get("rules", {})
