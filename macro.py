@@ -230,7 +230,7 @@ def why_today():
                      f"{'对高估值科技股是压力' if w10 > 0 else '对科技股是支撑'}。")
     recent = [e for e in calendar() if e["date"] == f"{day:%Y-%m-%d}"]
     for e in recent:
-        lines.append(f"当天公布了{e['name']}（{e['ref']}），这类数据经常引起较大波动。")
+        lines.append(f"当天公布了{e['name']}（{ref_cn(e)}），这类数据经常引起较大波动。")
     if len(lines) == 1 and size >= 0.003:
         lines.append("没有明显的单一原因，属于正常的日常波动。")
     return {"date": f"{day:%Y-%m-%d}", "qqqm": q, "lines": lines, "d10": d10, "d30": d30,
@@ -238,6 +238,20 @@ def why_today():
 
 
 WEEKDAY = "一二三四五六日"
+MONTHS = {m: i for i, m in enumerate(["January", "February", "March", "April", "May", "June", "July", "August",
+                                       "September", "October", "November", "December"], 1)}
+
+
+def ref_cn(e):
+    """统计期 / 会期翻成中文：October 2026 → 2026 年 10 月；October 27-28 → 10 月 27–28 日；3rd Quarter 2026 → 2026 年三季度。"""
+    r = e["ref"]
+    if m := re.fullmatch(r"(\w+) (\d{1,2})-(\d{1,2})", r):
+        return f"会期 {MONTHS.get(m[1], m[1])} 月 {m[2]}–{m[3]} 日"
+    if m := re.fullmatch(r"(\w+) (\d{4})", r):
+        return f"统计 {m[2]} 年 {MONTHS.get(m[1], m[1])} 月"
+    if m := re.fullmatch(r"(\d)\w* Quarter (\d{4})", r):
+        return f"统计 {m[2]} 年第 {m[1]} 季度"
+    return r
 
 
 def event_line(e):
@@ -282,12 +296,13 @@ def _infotable(cik, acc):
     rows = []
     for block in re.findall(r"<infoTable>(.*?)</infoTable>", text, re.S):
         g = lambda tag: (re.search(rf"<{tag}>(.*?)</{tag}>", block, re.S) or [None, ""])[1].strip()
-        if g("putCall"):
+        if g("putCall") or g("nameOfIssuer").upper() in ("NA", "N/A", "NONE", ""):
             continue
         rows.append({"name": g("nameOfIssuer"), "cusip": g("cusip"), "value": float(g("value") or 0),
                      "shares": float(g("sshPrnamt") or 0)})
-    d = pd.DataFrame(rows).groupby(["cusip"], as_index=False).agg(name=("name", "first"), value=("value", "sum"),
-                                                                 shares=("shares", "sum"))
+    d = pd.DataFrame(rows, columns=["name", "cusip", "value", "shares"])
+    d["issuer"] = d["cusip"].str[:6]  # CUSIP 前 6 位是发行公司，谷歌 A/C 股等会合并
+    d = d.groupby("issuer", as_index=False).agg(name=("name", "first"), value=("value", "sum"), shares=("shares", "sum"))
     # 2023 年起规定按美元填报，但仍有机构按千美元填；隐含股价普遍低于 1 美元说明单位是千。
     if (d["value"] / d["shares"].where(d["shares"] > 0)).median() < 1:
         d["value"] *= 1000
@@ -311,8 +326,8 @@ def holdings_13f():
             if len(picks) < 2:
                 continue
             cur, prev = (_infotable(cik, sub["accessionNumber"][i]) for i in picks)
-            m = cur.merge(prev, on="cusip", how="outer", suffixes=("", "_prev")).fillna({"value": 0, "shares": 0,
-                                                                                          "value_prev": 0, "shares_prev": 0})
+            m = cur.merge(prev, on="issuer", how="outer", suffixes=("", "_prev")).fillna(
+                {"value": 0, "shares": 0, "value_prev": 0, "shares_prev": 0})
             m["name"] = m["name"].fillna(m["name_prev"])
             total = m["value"].sum()
             m["weight"] = m["value"] / total if total else 0

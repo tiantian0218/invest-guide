@@ -103,11 +103,11 @@ def _events():
             f'<div style="font-size:20px;font-weight:700">{bj:%m/%d}</div>'
             f'<div style="font-size:12px;color:{MUTED}">周{macro.WEEKDAY[bj.weekday()]} {bj:%H:%M}</div></div>'
             f'<div><div style="font-weight:700">{e["name"]}{tag}</div>'
-            f'<div style="font-size:13px;color:{MUTED}">{when} · 统计期 {e["ref"]}</div>'
+            f'<div style="font-size:13px;color:{MUTED}">{when} · {macro.ref_cn(e)}</div>'
             f'<div style="font-size:14px;margin-top:4px">{e["why"]}</div></div></div>'), unsafe_allow_html=True)
     st.caption("数据公布前后，纳指一天涨跌 1–2% 很常见。定投照常，不需要熬夜盯盘。日期来自美国劳工统计局、经济分析局和美联储官网。")
     with st.expander("查看全部日程"):
-        rows = [{"美东日期": e["date"], "事件": e["name"], "统计期": e["ref"]} for e in cal if not e["past"]]
+        rows = [{"美东日期": e["date"], "事件": e["name"], "说明": macro.ref_cn(e)} for e in cal if not e["past"]]
         st.dataframe(pd.DataFrame(rows), hide_index=True, height=300)
 
 
@@ -120,7 +120,7 @@ def _rates():
                unsafe_allow_html=True)
     for col, key, label, note in ((b, "10Y", "10 年期美债", "影响房贷和股票估值"), (c, "30Y", "30 年期美债", "最长期的借钱成本")):
         d = (last[key] - week[key]) * 100
-        col.markdown(_card(label, f"{last[key]:.2f}%", f"一周{'+' if d >= 0 else '−'}{abs(d):.0f} 个基点 · {note}",
+        col.markdown(_card(label, f"{last[key]:.2f}%", f"比一周前{'升' if d >= 0 else '降'} {abs(d):.0f} 个基点 · {note}",
                            UP if d >= 15 else None), unsafe_allow_html=True)
     q = _qqqm()
     yy = y.loc[y.index >= q.index[0]]
@@ -212,6 +212,26 @@ def _chain_box():
 
 
 # ---------------------------------------------------------------- ⑥ 13F
+CN = {"APPLE": "苹果", "AMERICAN EXPRESS": "美国运通", "COCA COLA": "可口可乐", "ALPHABET": "谷歌（Alphabet）",
+      "BANK OF AMER": "美国银行", "CHEVRON": "雪佛龙", "OCCIDENTAL": "西方石油", "CHUBB": "安达保险", "MOODYS": "穆迪",
+      "KRAFT HEINZ": "卡夫亨氏", "AMAZON": "亚马逊", "MICROSOFT": "微软", "UBER": "优步", "BROOKFIELD": "布鲁克菲尔德",
+      "RESTAURANT BRANDS": "餐饮品牌国际（汉堡王母公司）", "HILTON": "希尔顿", "CHIPOTLE": "Chipotle 墨西哥餐厅",
+      "NIKE": "耐克", "HOWARD HUGHES": "霍华德·休斯", "NVIDIA": "英伟达", "META PLATFORMS": "Meta",
+      "TAIWAN SEMICONDUCTOR": "台积电", "STMICROELECTRONICS": "意法半导体", "NATERA": "Natera（基因检测）",
+      "VISTRA": "Vistra（电力）", "TESLA": "特斯拉", "VISA": "Visa", "MASTERCARD": "万事达", "DAVITA": "德维特（透析）",
+      "VERISIGN": "威瑞信", "KROGER": "克罗格超市", "SIRIUS": "天狼星卫星广播", "CONSTELLATION BRANDS": "星座品牌（啤酒）",
+      "D R HORTON": "霍顿房屋", "LENNAR": "莱纳房屋", "UNITEDHEALTH": "联合健康", "DOMINOS": "达美乐披萨",
+      "POOL CORP": "Pool（泳池用品）", "ALLY": "Ally 银行", "CAPITAL ONE": "第一资本", "CITIGROUP": "花旗",
+      "AMERICAN ELEC": "美国电力", "COUPANG": "Coupang（韩国电商）", "BROADCOM": "博通", "ORACLE": "甲骨文",
+      "MERCADOLIBRE": "美客多", "ELI LILLY": "礼来", "INSMED": "Insmed（生物药）", "YPF": "YPF（阿根廷石油）"}
+
+
+def _cn(name):
+    up = name.upper().replace(".", "").replace("'", "")
+    hit = next((v for k, v in CN.items() if up.startswith(k)), None)
+    return f"{hit} · {name.title()}" if hit else name.title()
+
+
 def _f13_box():
     data = _13f()
     if not data:
@@ -229,13 +249,13 @@ def _f13_box():
     def change(c):
         color = UP if c == "新买入" or c.startswith("+") else DOWN if c == "清仓" or c.startswith("-") else MUTED
         return f'<span style="color:{color}">{c}</span>'
-    table = "".join(f'<tr><td>{html.escape(r["name"].title())}</td><td style="text-align:right">{r["weight"]:.1%}</td>'
+    table = "".join(f'<tr><td>{html.escape(_cn(r["name"]))}</td><td style="text-align:right">{r["weight"]:.1%}</td>'
                     f'<td style="text-align:right">{change(r["change"])}</td></tr>' for r in top)
     st.markdown('<table style="width:100%;font-size:14px"><tr><th style="text-align:left">公司</th>'
                 '<th style="text-align:right">占比</th><th style="text-align:right">比上季度股数</th></tr>'
                 f'{table}</table>', unsafe_allow_html=True)
-    new = [r["name"].title() for r in rows if r["change"] == "新买入"][:8]
-    gone = [r["name"].title() for r in rows if r["change"] == "清仓"][:8]
+    new = [_cn(r["name"]) for r in rows if r["change"] == "新买入"][:8]
+    gone = [_cn(r["name"]) for r in rows if r["change"] == "清仓"][:8]
     if new:
         st.markdown(f"**新买入：** {html.escape('、'.join(new))}")
     if gone:
