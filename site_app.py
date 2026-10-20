@@ -12,12 +12,15 @@ import streamlit as st
 
 import cloud_api
 import invest
+import lessons
+import macro
 import market_data
 import signals
 import site_account
+import site_macro
 
 # Streamlit Cloud 拉到新代码后只重新执行本文件，已导入的本地模块会一直是旧版，直到应用重启。
-for _mod in (market_data, signals, invest, cloud_api, site_account):
+for _mod in (market_data, signals, invest, cloud_api, macro, lessons, site_account, site_macro):
     _mtime = Path(_mod.__file__).stat().st_mtime
     if getattr(_mod, "_loaded_mtime", None) != _mtime:
         importlib.reload(_mod)._loaded_mtime = _mtime
@@ -70,8 +73,8 @@ def signed(x, fmt="+.2f", unit="%"):
 st.title("美股指数定投入门")
 st.caption("用最低的成本，买下美国最大的几百家公司，然后交给时间。所有数据来自真实历史行情；历史不代表未来，不构成投资建议。")
 
-tab_guide, tab_market, tab_acct, tab_calc, tab_hist, tab_pick = st.tabs(
-    ["入门手册", "今日市场", "我的账户", "定投计算器", "历史数据", "选股参考"])
+tab_guide, tab_market, tab_learn, tab_acct, tab_calc, tab_hist, tab_pick = st.tabs(
+    ["入门手册", "今日市场", "看懂市场", "我的账户", "定投计算器", "历史数据", "选股参考"])
 
 with tab_acct:
     site_account.account_tab()
@@ -124,6 +127,9 @@ def market_tab():
 
 with tab_market:
     market_tab()
+
+with tab_learn:
+    site_macro.render()
 
 # ---------------------------------------------------------------- 定投计算器
 with tab_calc:
