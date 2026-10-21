@@ -312,13 +312,15 @@ def _lesson_box():
             st.markdown(f"**{i}. {title}**（{topic}）  \n{body}  \n*和你的关系：{tie}*")
 
 
-def render():
+def render(learn_only=False):
     st.markdown("这一页帮你看懂**市场为什么这样动**：利率、通胀、产业链和大资金在想什么。"
                 "内容只用于学习和理解，**不是买卖建议**；你的定投计划不需要因此改变。")
-    sections = [("今日信号", _signal, "信号"), ("① 今天为什么涨跌", _today, "涨跌解读"), ("② 接下来的大事", _events, "宏观日历"),
-                ("③ 利率：钱的价格", _rates, "利率数据"), ("④ 通胀和就业", _economy_box, "经济数据"),
-                ("⑤ AI 产业链地图", _chain_box, "产业链行情"), ("⑥ 大佬在买什么（13F 持仓）", _f13_box, "持仓报告"),
-                ("⑦ 每日一课", _lesson_box, "课程")]
+    sections = [("今日信号", _signal, "信号"), ("今天为什么涨跌", _today, "涨跌解读"), ("接下来的大事", _events, "宏观日历"),
+                ("每日一课", _lesson_box, "课程"), ("利率：钱的价格", _rates, "利率数据"), ("通胀和就业", _economy_box, "经济数据"),
+                ("AI 产业链地图", _chain_box, "产业链行情"), ("大佬在买什么（13F 持仓）", _f13_box, "持仓报告")]
+    if learn_only:
+        sections = [x for x in sections if x[0] not in ("今日信号", "今天为什么涨跌")]
+    sections = [(f"{'①②③④⑤⑥⑦⑧'[i]} {t}", fn, w) for i, (t, fn, w) in enumerate(sections)]
     for title, fn, what in sections:
         st.subheader(title)
         _safe(fn, what)

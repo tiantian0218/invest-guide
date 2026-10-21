@@ -18,9 +18,10 @@ import market_data
 import signals
 import site_account
 import site_macro
+import site_today
 
 # Streamlit Cloud 拉到新代码后只重新执行本文件，已导入的本地模块会一直是旧版，直到应用重启。
-for _mod in (market_data, signals, invest, cloud_api, macro, lessons, site_account, site_macro):
+for _mod in (market_data, signals, invest, cloud_api, macro, lessons, site_account, site_macro, site_today):
     _mtime = Path(_mod.__file__).stat().st_mtime
     if getattr(_mod, "_loaded_mtime", None) != _mtime:
         importlib.reload(_mod)._loaded_mtime = _mtime
@@ -73,14 +74,18 @@ def signed(x, fmt="+.2f", unit="%"):
 st.title("美股指数定投入门")
 st.caption("用最低的成本，买下美国最大的几百家公司，然后交给时间。所有数据来自真实历史行情；历史不代表未来，不构成投资建议。")
 
-tab_guide, tab_market, tab_learn, tab_acct, tab_calc, tab_hist, tab_pick = st.tabs(
-    ["入门手册", "今日市场", "看懂市场", "我的账户", "定投计算器", "历史数据", "选股参考"])
+SESSION = site_account.current_session()
+tab_today, tab_acct, tab_learn, tab_tools = st.tabs(["今天", "我的账户", "看懂市场", "工具箱"])
+
+with tab_today:
+    site_today.render(SESSION)
 
 with tab_acct:
-    site_account.account_tab()
+    site_account.account_tab(SESSION)
+
 
 # ---------------------------------------------------------------- 入门手册
-with tab_guide:
+def guide_tab():
     if PDF.exists():
         st.download_button("下载 PDF 版", PDF.read_bytes(), file_name="美股定投入门手册.pdf", mime="application/pdf")
     st.markdown(GUIDE.read_text(encoding="utf-8"))
@@ -96,10 +101,8 @@ def market_tab():
         return
     c1, c2 = st.columns(2)
     for col, name, ind in ((c1, "纳斯达克 100（QQQM）", q), (c2, "标普 500（SPYM）", s)):
-        col.metric(name, f"${ind['price']:.2f}", f"{ind['chg_1d'] * 100:+.2f}%", delta_color="inverse")
-        col.markdown(f"今年 {signed(ind['chg_ytd'] * 100, '+.1f')} · 距一年高点 {ind['from_high'] * 100:.1f}%",
+        col.markdown(f"**{name}** 今年 {signed(ind['chg_ytd'] * 100, '+.1f')} · 距一年高点 {ind['from_high'] * 100:.1f}%",
                      unsafe_allow_html=True)
-    st.caption("颜色按 A 股习惯：红涨绿跌。")
     try:
         temp, label, parts = signals.market_temperature(history()["QQQ"], vix_10y())
         meaning = {"冰冷": "市场很恐慌、跌得很深", "偏冷": "市场在回调", "正常": "不冷不热",
@@ -125,14 +128,14 @@ def market_tab():
         st.markdown(f"- **VIX 恐慌指数** {vix:.1f}（20 以下算平静，30 以上算恐慌）\n- **美国 10 年期国债收益率** {tnx:.2f}%（越高，股票估值压力越大）")
 
 
-with tab_market:
-    market_tab()
-
 with tab_learn:
-    site_macro.render()
+    st.subheader("市场温度")
+    market_tab()
+    site_macro.render(learn_only=True)
+
 
 # ---------------------------------------------------------------- 定投计算器
-with tab_calc:
+def calc_tab():
     st.markdown("按 1999 年以来的真实月度行情，把**所有可能的起点**都算一遍，看看结果的范围。")
     c1, c2 = st.columns(2)
     init = c1.number_input("现在一次性投入（元）", 0, 10_000_000, 10_000, step=5_000)
@@ -171,7 +174,7 @@ with tab_calc:
         st.plotly_chart(fig)
 
 # ---------------------------------------------------------------- 历史数据
-with tab_hist:
+def hist_tab():
     px = history()
     start = st.selectbox("从哪年开始看", list(range(1999, pd.Timestamp.today().year)), index=11)
     sub = px[px.index >= f"{start}-01-01"]
@@ -192,7 +195,7 @@ with tab_hist:
     st.caption("纳指 100 历史最大跌幅 −83%（2000→2002），花了约 15 年才回到前高；标普 500 最大跌幅约 −55%（2007→2009）。")
 
 # ---------------------------------------------------------------- 选股参考
-with tab_pick:
+def pick_tab():
     st.info("**核心 + 卫星**：大部分钱定投指数（核心）；个股（卫星）合计最多占总资产 15%，单只最多 5%；"
             "跌 25% 或跌破 200 日均线就卖。下表是规则筛出的“近期强势且赚钱的公司”，**不是推荐，更不是稳赚名单**。")
     f = ROOT / "data" / "screener.csv"
@@ -207,6 +210,11 @@ with tab_pick:
                         f"<span style='color:{UP};font-size:13px'>风险：{row['risk']}</span>", unsafe_allow_html=True)
         st.markdown("**筛选规则**：股价在 200 日均线之上；过去 12 个月（剔除最近 1 个月）涨幅靠前；公司盈利；"
                     "≥5 位分析师覆盖。综合分 = 动量 50% + 利润率 25% + 分析师目标价空间 25%。")
+
+
+TOOLS = {"定投计算器": calc_tab, "历史数据": hist_tab, "选股参考": pick_tab, "入门手册": guide_tab}
+with tab_tools:
+    TOOLS[st.radio("工具", list(TOOLS), horizontal=True, label_visibility="collapsed")]()
 
 st.divider()
 st.caption("本网站只提供信息和计算工具，不构成投资建议，不代客理财、不带单、不收取任何费用。"

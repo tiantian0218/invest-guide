@@ -213,16 +213,46 @@ def _logout(s=None):
     st.session_state["sb_logged_out"] = True
 
 
-def account_tab():
+def current_session():
+    """整页只调用一次（读 cookie 的组件每次运行只能出现一次），结果交给「今天」和「我的账户」共用。"""
+    return _session() if cloud_api.enabled() else None
+
+
+def account_tab(s):
     if not cloud_api.enabled():
         st.info("账户功能还在准备中，敬请期待。")
         return
-    _account_body()
+    _account_body(s)
     _sync_cookie()
 
 
-def _account_body():
-    s = _session()
+def money_strip(s):
+    """首页用的一行「我的钱」，返回人民币总资产（拿不到返回 None）。"""
+    try:
+        dep, tr = s.rows("deposits"), s.rows("trades")
+    except cloud_api.CloudError:
+        return None
+    if not dep and not tr:
+        return None
+    tickers = tuple(sorted({r["ticker"] for r in tr} | set(CORE)))
+    try:
+        prices, (_, usdcny) = _prices(tickers), _fx()
+    except Exception:
+        return None
+    pos, sm = summarize(dep, tr, prices)
+    total = sm["total"] * usdcny
+    pnl = total - sm["in_cny"]
+    pct = pnl / sm["in_cny"] * 100 if sm["in_cny"] else 0.0
+    a, b, c = st.columns(3)
+    a.markdown(_card("总资产", f"¥{total:,.0f}", f"${sm['total']:,.2f}"), unsafe_allow_html=True)
+    b.markdown(_card("总盈亏", f"{_signed(pnl, '¥', 0)}", f"{pct:+.2f}%（含汇率）", UP if pnl >= 0 else DOWN),
+               unsafe_allow_html=True)
+    c.markdown(_card("可用现金", f"¥{sm['cash'] * usdcny:,.0f}", f"${sm['cash']:,.2f}"), unsafe_allow_html=True)
+    st.caption("持仓明细、记账和「假如照做了」回溯在「我的账户」。")
+    return total
+
+
+def _account_body(s):
     if s is None:
         if st.session_state.pop("sb_cookie_pending", False):
             st.caption("正在恢复上次的登录…")
@@ -262,7 +292,10 @@ def _account_body():
         st.warning("行情暂时获取失败，市值按成本显示。")
     pos, sm = summarize(dep, tr, prices)
 
-    _signal_box(s, owner)
+    if readonly:
+        _signal_box(s, owner)
+    else:
+        st.caption("今日信号在「今天」页。")
     _whatif_box(s, owner)
     if not dep and not tr:
         st.markdown("这个账户还没有记录。" if readonly else
@@ -447,26 +480,33 @@ def _signal_box(s, owner):
     except cloud_api.CloudError:
         return
     sig = ((snap or {}).get("payload") or {}).get("signals")
-    if not sig:
-        return
-    updated = pd.Timestamp(snap["updated_at"]).tz_convert("Asia/Shanghai")
+    if sig:
+        signal_card(sig, snap["updated_at"])
+
+
+def signal_card(sig, updated_at, confidence=None, stars=None):
+    updated = pd.Timestamp(updated_at).tz_convert("Asia/Shanghai")
     age = (pd.Timestamp.now(tz="Asia/Shanghai").normalize() - pd.Timestamp(sig["date"]).tz_localize("Asia/Shanghai")).days
     rows = ""
     for r in sig["rows"]:
         chg = f'<span style="color:{UP if r["chg"] >= 0 else DOWN}"> {r["chg"]:+.2%}</span>' if r.get("chg") is not None else ""
+        conf = ""
+        if confidence:
+            n, basis = confidence(r["asset"], r["signal"])
+            conf = (f'<div style="font-size:12px;color:#6b7280;margin-top:2px">把握度 {stars(n)} · {html.escape(basis)}</div>')
         rows += (f'<div style="display:flex;gap:10px;align-items:flex-start;padding:10px 0;border-top:1px solid #eef0f3">'
                  f'<span style="background:{r["color"]};color:#fff;border-radius:6px;padding:2px 8px;font-weight:700;'
                  f'white-space:nowrap;font-size:14px">{html.escape(r["signal"])}</span>'
                  f'<div><div style="font-weight:600">{html.escape(r["asset"])}{chg}</div>'
                  f'<div style="font-size:14px;line-height:1.5">{html.escape(r["why"])}</div>'
-                 f'<div style="font-size:12px;color:#9ca3af">规则：{html.escape(r["rule"])}</div></div></div>')
+                 f'<div style="font-size:12px;color:#9ca3af">规则：{html.escape(r["rule"])}</div>{conf}</div></div>')
     stale = (f'<div style="color:#d97706;font-size:13px">这是 {age} 天前的信号（电脑当天可能没开机），以汇丰 App 的价格为准。</div>'
              if age > 0 else "")
     st.markdown(
         f'<div style="padding:14px 16px;border-radius:12px;background:#f9fafb;margin:6px 0 12px">'
         f'<div style="display:flex;justify-content:space-between;align-items:baseline">'
         f'<b style="font-size:18px">今日信号</b><span style="color:#6b7280;font-size:12px">更新于 {updated:%m-%d %H:%M}</span></div>'
-        f'<div style="font-size:15px;margin:4px 0 2px">今天要做的：<b>{html.escape(sig["headline"])}</b></div>{stale}'
+        f'<div style="font-size:20px;font-weight:700;margin:6px 0 2px">{html.escape(sig["headline"])}</div>{stale}'
         f'{rows}</div>', unsafe_allow_html=True)
     st.caption("红色标签 = 买入 / 加码，绿色 = 卖出 / 考虑卖出，蓝色 = 持有不动，灰色 = 只观察。"
                "信号全部来自写死的规则，不构成投资建议；工具不会替你下单。")
