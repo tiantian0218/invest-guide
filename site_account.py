@@ -298,6 +298,7 @@ def _account_body(s):
         st.caption("今日信号在「今天」页。")
     _whatif_box(s, owner)
     _review_box(s, owner)
+    _monthly_box(s, owner)
     if not dep and not tr:
         st.markdown("这个账户还没有记录。" if readonly else
                     "还没有记录。钱到账后先在下面**记一笔入金**，买入成交后**记一笔成交**。")
@@ -549,7 +550,7 @@ def _whatif_box(s, owner):
             fig.update_layout(height=260, margin=dict(l=0, r=0, t=30, b=0), hovermode="x unified",
                               title=dict(text="三本账的浮动盈亏（美元）", font=dict(size=14)),
                               legend=dict(orientation="h", y=-0.2), yaxis=dict(tickprefix="$"))
-            st.plotly_chart(fig, width="stretch", config={"displayModeBar": False})
+            st.plotly_chart(fig, config={"displayModeBar": False})
         stats = [x for x in w.get("stats", []) if any(x[k]["n"] for k in ("1天", "1周", "1月"))]
         if stats:
             st.markdown("**建议准不准**（买入类看之后涨没涨，卖出类看之后跌没跌）")
@@ -576,6 +577,47 @@ def _whatif_box(s, owner):
         st.caption("怎么算的：按建议当晚的美股收盘价当作假想成交价；1天/1周/1月是之后第 1、5、21 个交易日的涨跌，“至今”到最新收盘价。"
                    f"影响金额已扣佣金（按你历史成交的平均费率 {w.get('fee_rate', 0):.2%}）。计划外的买入和“同样的钱当天买 QQQM”比较；"
                    "“只定投指数”是把你每笔买入的钱按 70/30 买 QQQM/SPYM。几天、几周的对比运气成分很大，看满几个月才有参考意义。")
+
+
+def _monthly_box(s, owner):
+    try:
+        snap = s.get_paper(owner)
+    except cloud_api.CloudError:
+        return
+    r = ((snap or {}).get("payload") or {}).get("monthly")
+    if not r:
+        return
+    rate = r.get("usdcny") or 0
+    partial = f"（截至 {r['asof'][5:]}）" if r["asof"][:7] == r["month"] else ""
+    with st.expander(f"月度复盘 · {r['month']}{partial}", expanded=False):
+        cols = st.columns(3)
+        for col, (k, name) in zip(cols, (("actual", "你的实际"), ("follow", "全部照做"), ("dca", "只定投指数"))):
+            v = r["pnl"][k]
+            col.markdown(_card(f"{name} · 本月", _signed(v * rate, "¥", 0), _signed(v, "$", 2), UP if v >= 0 else DOWN),
+                         unsafe_allow_html=True)
+        if r.get("market"):
+            st.caption("同期市场：" + "，".join(f"{t} {v:+.1%}" for t, v in r["market"].items())
+                       + "。一个月的涨跌基本是运气，长期坚持才看得出差别。")
+        if r["n_advice"]:
+            st.markdown(f"**照做情况**：{r['n_advice']} 条建议照做了 {r['n_followed']} 条")
+        for x in r.get("missed", []) + [f"计划外：{u}" for u in r.get("unplanned", [])]:
+            st.markdown(f'<div style="font-size:14px;color:#4b5563">· {html.escape(x)}</div>', unsafe_allow_html=True)
+        st.markdown("**仓位检查**")
+        st.markdown("".join(
+            f'<div style="font-size:14px;line-height:1.7">{"✅" if x["ok"] else "⚠️"} {html.escape(x["item"])}：'
+            f'{html.escape(x["value"])}{"　" + html.escape(x["tip"]) if x["tip"] else ""}</div>' for x in r["risk"]),
+            unsafe_allow_html=True)
+        if len(r.get("history", [])) > 1:
+            import plotly.graph_objects as go
+            fig = go.Figure()
+            for key, name, color in (("actual", "你的实际", "#2563eb"), ("follow", "全部照做", "#f97316"),
+                                     ("dca", "只定投指数", "#9ca3af")):
+                fig.add_bar(x=[h["month"] for h in r["history"]], y=[h[key] for h in r["history"]], name=name,
+                            marker_color=color)
+            fig.update_layout(height=240, margin=dict(l=0, r=0, t=30, b=0), barmode="group",
+                              title=dict(text="每月浮动盈亏变化（美元）", font=dict(size=14)),
+                              legend=dict(orientation="h", y=-0.25), yaxis=dict(tickprefix="$"))
+            st.plotly_chart(fig, config={"displayModeBar": False})
 
 
 STANCE_COLORS = {"偏多": UP, "中性": "#6b7280", "偏空": DOWN}

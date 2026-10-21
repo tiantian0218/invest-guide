@@ -100,7 +100,7 @@ def _dip_section():
                                hovertemplate="%{y} · %{x}<br>比按时全投 %{z:+.1f}%<extra></extra>", showscale=False))
     fig.update_layout(height=230, margin=dict(l=0, r=0, t=30, b=0),
                       title=dict(text="10 年后比“每月按时全投”多 / 少多少（所有起点平均）", font=dict(size=14)))
-    st.plotly_chart(fig, width="stretch", config={"displayModeBar": False})
+    st.plotly_chart(fig, config={"displayModeBar": False})
     base = g[(g.keep == 0.2) & (g.th == 0.2)]
     ins, oos = base[base.year < SPLIT_YEAR], base[base.year >= SPLIT_YEAR]
     worst = g.groupby(["keep", "th"])["excess"].mean().max()
@@ -128,7 +128,7 @@ def _diversify_section():
         fig.add_scatter(x=c.index, y=c.values, name=name, line=dict(width=2.5 if "现在" in name else 1.5))
     fig.update_layout(height=300, margin=dict(l=0, r=0, t=30, b=0), hovermode="x unified", yaxis=dict(type="log", tickprefix="$"),
                       title=dict(text="1 万美元定期再平衡后的走势（对数坐标）", font=dict(size=14)), legend=dict(orientation="h", y=-0.2))
-    st.plotly_chart(fig, width="stretch", config={"displayModeBar": False})
+    st.plotly_chart(fig, config={"displayModeBar": False})
     nb = df[(df["组合"] == list(PORTFOLIOS)[1])]
     gain = float(nb[nb["再平衡"] == "定期"]["年化"].iloc[0] - nb[nb["再平衡"] == "不调整"]["年化"].iloc[0])
     st.markdown(
