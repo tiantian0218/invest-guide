@@ -33,7 +33,7 @@ ROOT = Path(__file__).resolve().parent
 GUIDE = ROOT / "public" / "美股定投入门手册.md"
 PDF = ROOT / "public" / "美股定投入门手册.pdf"
 
-st.set_page_config(page_title="美股指数定投入门", page_icon="📈", layout="centered")
+st.set_page_config(page_title="美股指数定投入门 · 天天", page_icon="📈", layout="centered")
 UP, DOWN = "#d62728", "#16a34a"
 
 
@@ -226,3 +226,5 @@ with tab_tools:
 st.divider()
 st.caption("所有数据来自真实历史行情；历史不代表未来。本网站只提供信息和计算工具，不构成投资建议，"
            "不代客理财、不带单、不收取任何费用。请不要把银行账号和密码告诉任何人。")
+st.markdown(f'<div style="text-align:center;color:{site_ui.FAINT};font-size:12px;letter-spacing:1px;margin-top:18px">'
+            f'天天 做的小工具 · {pd.Timestamp.now(tz="Asia/Shanghai").year}</div>', unsafe_allow_html=True)
