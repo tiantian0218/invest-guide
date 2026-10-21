@@ -263,6 +263,7 @@ def _account_body():
     pos, sm = summarize(dep, tr, prices)
 
     _signal_box(s, owner)
+    _whatif_box(s, owner)
     if not dep and not tr:
         st.markdown("这个账户还没有记录。" if readonly else
                     "还没有记录。钱到账后先在下面**记一笔入金**，买入成交后**记一笔成交**。")
@@ -469,6 +470,50 @@ def _signal_box(s, owner):
         f'{rows}</div>', unsafe_allow_html=True)
     st.caption("红色标签 = 买入 / 加码，绿色 = 卖出 / 考虑卖出，蓝色 = 持有不动，灰色 = 只观察。"
                "信号全部来自写死的规则，不构成投资建议；工具不会替你下单。")
+
+
+def _whatif_box(s, owner):
+    try:
+        snap = s.get_paper(owner)
+    except cloud_api.CloudError:
+        return
+    w = ((snap or {}).get("payload") or {}).get("whatif")
+    if not w or not w.get("rows"):
+        return
+    g = w["gap_usd"]
+    rate = w.get("usdcny") or 0
+
+    def pct(x):
+        return "—" if x is None else f'<span style="color:{UP if x >= 0 else DOWN}">{x:+.1%}</span>'
+
+    with st.expander(f"假如照做了 · 从 {w['since'][5:]} 起的建议回溯（数据截至美东 {w['asof'][5:]}）", expanded=True):
+        a, b, c = st.columns(3)
+        a.markdown(_card("给过的建议", f"{w['n_advice']} 条", f"照做了 {w['n_followed']} 条"), unsafe_allow_html=True)
+        if abs(g) < 0.01:
+            c_main, c_sub, color = "持平", "照做和实际没有差别", None
+        elif g > 0:
+            c_main, c_sub, color = _signed(-g * rate, "¥", 0), f"照做会多赚 ${g:,.2f}", DOWN
+        else:
+            c_main, c_sub, color = _signed(-g * rate, "¥", 0), f"你的做法多赚 ${-g:,.2f}", UP
+        b.markdown(_card("你的实际 vs 全部照做", c_main, c_sub, color), unsafe_allow_html=True)
+        unplanned = [r for r in w["rows"] if r["kind"] == "计划外"]
+        c.markdown(_card("计划外交易", f"{len(unplanned)} 笔", "和同样的钱买 QQQM 比较"), unsafe_allow_html=True)
+        body = ""
+        for r in w["rows"]:
+            tag = ('<span style="background:#fef3c7;color:#92400e;border-radius:4px;padding:0 4px;font-size:12px">计划外</span> '
+                   if r["kind"] == "计划外" else "")
+            body += (f'<tr style="border-top:1px solid #eef0f3"><td style="white-space:nowrap">{r["date"][5:]}</td>'
+                     f'<td>{tag}{html.escape(r["advice"])}<br><span style="color:#6b7280;font-size:12px">'
+                     f'你：{html.escape(r["did"])}</span></td>'
+                     f'<td style="text-align:right">{pct(r.get("next"))}</td><td style="text-align:right">{pct(r.get("total"))}</td></tr>'
+                     + (f'<tr><td></td><td colspan="3" style="font-size:13px;padding-bottom:6px">→ {html.escape(r["note"])}</td></tr>'
+                        if r.get("note") else ""))
+        st.markdown('<table style="width:100%;font-size:14px;border-collapse:collapse">'
+                    '<tr style="color:#6b7280;font-size:12px"><th style="text-align:left">日期</th><th style="text-align:left">建议 / 你的操作</th>'
+                    '<th style="text-align:right">第二天</th><th style="text-align:right">至今</th></tr>'
+                    f'{body}</table>', unsafe_allow_html=True)
+        st.caption("怎么算的：按建议当晚的美股收盘价当作假想成交价，“第二天”是下一个交易日的涨跌，“至今”是到最新收盘价的涨跌。"
+                   "计划外的买入，和“同样的钱当天买 QQQM”比较。几天、几周的对比运气成分很大，看满几个月才有参考意义。")
 
 
 def _paper_box(s, owner):
