@@ -1,7 +1,4 @@
-"""网站首页「今天」：每天打开只需要看这一页。今天要不要操作 → 我的钱 → 如果大跌会怎样 → 市场一句话。"""
-import html
-
-import numpy as np
+"""网站首页「今天」：每天打开只需要看最上面那张日签。往下依次是：我的钱 → 每一项怎么做 → 心理准备 → 市场一句话。"""
 import pandas as pd
 import streamlit as st
 
@@ -9,17 +6,24 @@ import invest
 import signals
 import site_account
 import site_macro
+import site_ui as ui
+from site_ui import ACT, CALM, DOWN, FAINT, LINE, MUTED, UP, WARN, esc
 
-UP, DOWN, MUTED = "#d62728", "#16a34a", "#6b7280"
-BOX = "padding:14px 16px;border-radius:12px;background:#f9fafb;margin:6px 0"
 WEIGHT_Q = 0.7
 CRASHES = [("2000 年科网泡沫", "2000-03-01", "2002-12-31"), ("2008 年金融危机", "2007-10-01", "2009-06-30"),
            ("2020 年疫情", "2020-02-01", "2020-04-30"), ("2022 年加息", "2021-11-01", "2022-12-31")]
+ACTION_SIGNALS = {"买入", "加码", "卖出"}
 
 
 @st.cache_data(ttl=86400, show_spinner=False)
 def _history():
     return invest.history(["QQQ", "SPY"])
+
+
+@st.cache_data(ttl=86400, show_spinner=False)
+def _vix():
+    d = invest.yf.download("^VIX", period="10y", auto_adjust=True, progress=False)["Close"].squeeze().dropna()
+    return d if len(d) > 252 else None
 
 
 @st.cache_data(ttl=86400, show_spinner=False)
@@ -74,65 +78,22 @@ def stars(n):
     return f'<span style="color:#f59e0b;letter-spacing:1px">{"★" * n}{"☆" * (3 - n)}</span>'
 
 
-def _status():
-    is_open, text = signals.us_market_status()
-    now = pd.Timestamp.now(tz="Asia/Shanghai")
-    dot = "#16a34a" if is_open else "#9ca3af"
-    st.markdown(f'<div style="color:{MUTED};font-size:14px">北京时间 {now:%m月%d日 %H:%M} · '
-                f'<span style="color:{dot}">●</span> {html.escape(text)}</div>', unsafe_allow_html=True)
+# ---------------------------------------------------------------- 日签上的小标签
+def _quotes():
+    d = site_macro._index_closes()
+    out = {}
+    for t in ("QQQM", "SPYM"):
+        c = d[t].dropna()
+        trend = d["QQQ"].dropna() if t == "QQQM" and "QQQ" in d else c
+        out[t] = {"price": float(c.iloc[-1]), "chg": float(c.iloc[-1] / c.iloc[-2] - 1),
+                  "dd": float(trend.iloc[-1] / trend.iloc[-252:].max() - 1), "date": c.index[-1]}
+    return out
 
 
-def _personal(s):
-    snap = None
-    try:
-        snap = s.get_paper(s.uid)
-    except Exception:
-        pass
-    sig = ((snap or {}).get("payload") or {}).get("signals")
-    if sig:
-        site_account.signal_card(sig, snap["updated_at"], confidence, stars)
-    else:
-        st.info("还没有收到你的今日信号（本机推送程序每天早上会上传一次）。下面先显示通用的指数信号。")
-        site_macro._signal(confidence, stars)
-    return site_account.money_strip(s)
-
-
-def _risk(amount, personal):
-    ev = evidence()
-    head = "如果市场大跌，你的账户会怎样" if personal else "如果市场大跌，这笔钱会怎样"
-    rows = ""
-    for c in ev["crashes"]:
-        loss = amount * c["dd"]
-        back = f"约 {c['months'] // 12} 年 {c['months'] % 12} 个月回本" if c["months"] else "至今未回本"
-        width = min(100, abs(c["dd"]) * 100)
-        rows += (f'<div style="padding:8px 0;border-top:1px solid #eef0f3">'
-                 f'<div style="display:flex;justify-content:space-between"><b>{c["name"]}</b>'
-                 f'<span style="color:{DOWN};font-weight:700">{c["dd"]:.0%} · −¥{abs(loss):,.0f}</span></div>'
-                 f'<div style="height:6px;background:#e5e7eb;border-radius:3px;margin:4px 0">'
-                 f'<div style="width:{width}%;height:6px;background:{DOWN};border-radius:3px"></div></div>'
-                 f'<div style="font-size:12px;color:{MUTED}">从最高点算，{back}（期间继续定投会更快）</div></div>')
-    typical = amount * ev["typical_year_dd"]
-    st.markdown(
-        f'<div style="{BOX}"><b style="font-size:17px">{head}</b>'
-        f'<div style="font-size:14px;margin:4px 0 6px">按 70% 纳指 100 + 30% 标普 500 的历史走势估算，本金 ¥{amount:,.0f}：</div>'
-        f'<div style="font-size:14px;margin-bottom:4px">普通年份，年内最多浮亏一般在 <b style="color:{DOWN}">'
-        f'{ev["typical_year_dd"]:.0%}（约 −¥{abs(typical):,.0f}）</b>，这是正常波动。</div>{rows}</div>',
-        unsafe_allow_html=True)
-    st.caption("看完问自己一句：真遇到这种跌幅，我能拿住不卖吗？如果不能，说明纳指比例偏高或投入偏多，"
-               "可以在工具箱的定投计算器里试试更低的比例。历史不代表未来，未来的跌幅可能更大。")
-
-
-def _market():
-    try:
-        d = site_macro._index_closes()
-        cols = st.columns(2)
-        for col, t, name in ((cols[0], "QQQM", "纳指 100"), (cols[1], "SPYM", "标普 500")):
-            c = d[t].dropna()
-            chg = float(c.iloc[-1] / c.iloc[-2] - 1)
-            col.metric(f"{t} · {name}", f"${c.iloc[-1]:.2f}", f"{chg:+.2%}", delta_color="inverse")
-    except Exception:
-        st.info("行情暂时获取失败，请稍后刷新。")
-    site_macro._safe(site_macro._today, "涨跌解读")
+@st.cache_data(ttl=3600, show_spinner=False)
+def _temperature():
+    t, label, _ = signals.market_temperature(_history()["QQQ"], _vix())
+    return t, label
 
 
 def _next_event():
@@ -140,40 +101,166 @@ def _next_event():
     today = pd.Timestamp.now(tz="America/New_York").normalize().tz_localize(None)
     nxt = next((e for e in cal if not e["past"]), None)
     if not nxt:
-        return
+        return None
     import macro
-    bj = macro.bj_time(nxt)
     days = (pd.Timestamp(nxt["date"]) - today).days
-    when = "今天" if days == 0 else "明天" if days == 1 else f"{days} 天后"
-    st.markdown(f'<div style="{BOX}"><span style="color:{MUTED}">下一件大事</span> · <b>{nxt["name"]}</b> · '
-                f'{when}（北京时间 {bj:%m/%d %H:%M}）<div style="font-size:14px;margin-top:2px">{nxt["why"]}</div></div>',
-                unsafe_allow_html=True)
+    return {**nxt, "bj": macro.bj_time(nxt), "when": "今天" if days == 0 else "明天" if days == 1 else f"{days} 天后"}
+
+
+def _chips(q):
+    chips = [ui.chip(f"纳指 {ui.move(q['QQQM']['chg'])}"), ui.chip(f"标普 {ui.move(q['SPYM']['chg'])}")]
+    try:
+        t, label = _temperature()
+        chips.append(ui.chip(f"市场温度 <b>{t}°</b> {label}"))
+    except Exception:
+        pass
+    try:
+        if e := _next_event():
+            chips.append(ui.chip(f"{esc(e['when'])}：{esc(e['name'])}"))
+    except Exception:
+        pass
+    return chips
+
+
+# ---------------------------------------------------------------- 日签
+def _personal_signal(s):
+    try:
+        snap = s.get_paper(s.uid)
+    except Exception:
+        return None, None
+    sig = ((snap or {}).get("payload") or {}).get("signals")
+    return sig, (snap or {}).get("updated_at")
+
+
+def _generic_rows(q):
+    rows = []
+    for t, name in (("QQQM", "纳指 100"), ("SPYM", "标普 500")):
+        dd = q[t]["dd"]
+        if dd <= -0.20:
+            rows.append({"asset": f"{t} · {name}", "signal": "加码", "color": UP, "chg": q[t]["chg"],
+                         "why": f"距一年高点 {dd:.0%}，进入大跌区。定投日照常买、别停；有闲钱可以多投一点，但不要借钱。"})
+        else:
+            rows.append({"asset": f"{t} · {name}", "signal": "定投日买", "color": ACT, "chg": q[t]["chg"],
+                         "why": f"距一年高点 {dd:.0%}。到你定的定投日照常买，其他日子不用管。"})
+    return rows
+
+
+def _hero(q, sig, updated_at):
+    chips = _chips(q)
+    if sig:
+        acts = [r for r in sig["rows"] if r["signal"] in ACTION_SIGNALS]
+        tone = WARN if any(r["signal"] == "卖出" for r in acts) else ACT if acts else CALM
+        age = (pd.Timestamp.now(tz="Asia/Shanghai").normalize()
+               - pd.Timestamp(sig["date"]).tz_localize("Asia/Shanghai")).days
+        updated = pd.Timestamp(updated_at).tz_convert("Asia/Shanghai")
+        why = (f"根据你的持仓和规则算出，{updated:%m-%d %H:%M} 更新。"
+               + ("具体每一项看下面。" if acts else "定投日以外，什么都不做就是最好的操作。"))
+        if age > 0:
+            why += f'<br><span style="color:{WARN}">这是 {age} 天前的信号（电脑当天可能没开机），以汇丰 App 的价格为准。</span>'
+        ui.day_card(sig["headline"], why, tone, chips)
+        return
+    crash = min(q["QQQM"]["dd"], q["SPYM"]["dd"]) <= -0.20
+    if crash:
+        ui.day_card("大跌区：定投别停", "市场离一年高点跌了两成以上。历史上坚持定投的人，正是在这种时候买到了便宜的份额。", UP, chips)
+    else:
+        ui.day_card("今天不用操作", "到你自己定的定投日照常买入就行，其他日子不用看盘。不因为涨了追加，也不因为跌了卖出。",
+                    CALM, chips)
+
+
+def _rows(rows, title="每一项怎么做"):
+    ui.section(title, "标签颜色：红 = 买，绿 = 卖，蓝 = 按计划，灰 = 只观察")
+    body, basis = "", {}
+    for r in rows:
+        n, b = confidence(r["asset"], r["signal"])
+        basis.setdefault(b, (n, []))[1].append(r["asset"].split(" · ")[0])
+        chg = f" {ui.move(r['chg'])}" if r.get("chg") is not None else ""
+        body += (f'<div class="ui-row">{ui.tag(r["signal"], r["color"])}<div style="flex:1;min-width:0">'
+                 f'<div style="font-weight:600">{esc(r["asset"])}{chg}'
+                 f'<span style="float:right;font-size:13px" title="规则的历史证据强度">{stars(n)}</span></div>'
+                 f'<div style="font-size:14px;line-height:1.55;margin-top:2px">{esc(r["why"])}</div></div></div>')
+    ui.card(body, "background:#fff;border:1px solid " + LINE)
+    with st.expander("星星是什么意思？规则依据"):
+        st.markdown("星星表示**这条规则有多少历史证据**，不是“明天会涨”的把握。")
+        for b, (n, names) in basis.items():
+            st.markdown(f"{stars(n)} **{'、'.join(names)}**：{b}", unsafe_allow_html=True)
+        rules = [f"- **{r['asset']}**：{r['rule']}" for r in rows if r.get("rule")]
+        if rules:
+            st.markdown("**对应的规则**\n" + "\n".join(rules))
+        st.caption("指数没有“卖出信号”：只在需要用钱、或接近目标时按计划慢慢卖。信号全部来自写死的规则，不构成投资建议。")
+
+
+# ---------------------------------------------------------------- 心理准备
+def _risk(amount, personal):
+    ev = evidence()
+    typical = amount * ev["typical_year_dd"]
+    rows = ""
+    for c in ev["crashes"]:
+        back = (f"{c['months'] // 12} 年 {c['months'] % 12} 个月回本" if c["months"] >= 12 else f"{c['months']} 个月回本") \
+            if c["months"] else "至今未回本"
+        rows += (f'<div style="padding:9px 0;border-top:1px solid {LINE}">'
+                 f'<div style="display:flex;justify-content:space-between;gap:8px"><span>{c["name"]}</span>'
+                 f'<b class="ui-num" style="color:{DOWN}">−¥{abs(amount * c["dd"]):,.0f}</b></div>'
+                 f'<div style="display:flex;align-items:center;gap:8px;margin-top:4px">'
+                 f'<div style="flex:1;height:8px;background:#eef1f5;border-radius:4px">'
+                 f'<div style="width:{min(100, abs(c["dd"]) * 100):.0f}%;height:8px;background:{DOWN};border-radius:4px"></div></div>'
+                 f'<span class="ui-num" style="font-size:13px;color:{MUTED};min-width:120px;text-align:right">'
+                 f'{c["dd"]:.0%} · {back}</span></div></div>')
+    who = "你的账户" if personal else "这笔钱"
+    ui.card(f'<div style="font-size:15px;line-height:1.6">按历史走势估算，{who}（¥{amount:,.0f}）在<b>普通年份</b>'
+            f'年内最多浮亏一般在 <b class="ui-num" style="color:{DOWN};white-space:nowrap">{ev["typical_year_dd"]:.0%}（约 −¥{abs(typical):,.0f}）</b>，'
+            f'这是正常波动。遇到大危机时：</div>{rows}'
+            f'<div class="ui-note" style="margin-top:6px">回本时间从最高点算；期间继续定投，回本会更快。历史不代表未来，未来的跌幅可能更大。</div>')
+    ui.ask("<b>问自己一句：</b>真遇到这种跌幅，我能拿住不卖吗？如果不能，说明纳指比例偏高或投入偏多，"
+           "可以在「工具箱 · 定投计算器」里试试更低的比例。")
+
+
+# ---------------------------------------------------------------- 市场一句话
+def _market():
+    w = site_macro._why()
+    lines = w["lines"]
+    ui.card(f'<div style="color:{MUTED};font-size:13px">美东 {esc(w["date"])} 收盘</div>'
+            f'<div style="font-size:17px;font-weight:700;margin:2px 0 4px">{esc(lines[0])}</div>'
+            + "".join(f'<div style="font-size:14px;line-height:1.6">{esc(x)}</div>' for x in lines[1:3]))
+    e = _next_event()
+    if e:
+        ui.card(f'<div style="color:{MUTED};font-size:13px">下一件大事 · {esc(e["when"])}（北京时间 {e["bj"]:%m/%d %H:%M}）</div>'
+                f'<div style="font-size:16px;font-weight:700;margin:2px 0">{esc(e["name"])}</div>'
+                f'<div style="font-size:14px;line-height:1.6">{esc(e["why"])}</div>')
+    st.caption("涨跌原因是根据公开数据推算的相关性，不是确定的因果。想了解利率、通胀这些背后的原因，去「看懂市场」。")
 
 
 def render(s):
-    _status()
-    st.subheader("今天要做什么")
+    try:
+        q = _quotes()
+    except Exception:
+        st.warning("行情暂时获取失败，请过 1 分钟刷新页面。")
+        return
+    sig, updated_at = _personal_signal(s) if s is not None else (None, None)
+    _hero(q, sig, updated_at)
+    is_open, text = signals.us_market_status()
+    st.markdown(f'<div class="ui-note">{"🟢" if is_open else "⚪"} {esc(text)} · 价格为最近收盘价，以银行 App 为准</div>',
+                unsafe_allow_html=True)
+
     total = None
     if s is not None:
+        ui.section("我的钱")
         try:
-            total = _personal(s)
+            total = site_account.money_strip(s)
         except Exception as e:
-            st.info(f"个人数据暂时读取失败（{type(e).__name__}），先显示通用信号。")
-            site_macro._signal(confidence, stars)
+            st.info(f"个人数据暂时读取失败（{type(e).__name__}）。")
+        if total is None:
+            st.caption("还没有记账数据，在「我的账户」记一笔入金后，这里会显示你的总资产和盈亏。")
+    if sig:
+        _rows(sig["rows"])
     else:
-        site_macro._signal(confidence, stars)
-        st.caption("登录后（「我的账户」页），这里会显示你自己的信号、持仓和盈亏。")
-    st.markdown("**把握度怎么看：** ★★★ 有几十年历史数据支持；★★ 风控或常识规则，有道理但优势不大；"
-                "★ 证据弱，只作提醒；☆ 实验中。星级说的是规则有多可靠，不是“明天会涨”的把握。")
+        _rows(_generic_rows(q))
+        if s is None:
+            st.caption("在「我的账户」登录后，这里会换成按你自己持仓算出来的信号。")
 
-    st.subheader("风险预期")
-    if total:
-        amount = total
-    else:
-        amount = st.number_input("想投入多少钱（元）", 1000, 10_000_000, 10_000, step=1000)
+    ui.section("心理准备：如果大跌", "先想清楚最坏情况，真遇到时才拿得住")
+    amount = total or st.number_input("想投入多少钱（元）", 1000, 10_000_000, 10_000, step=1000)
     site_macro._safe(lambda: _risk(amount, bool(total)), "风险测算")
 
-    st.subheader("市场一句话")
-    _market()
-    site_macro._safe(_next_event, "宏观日历")
-    st.caption("想了解利率、通胀、产业链这些背后的原因，去「看懂市场」；计算器和历史数据在「工具箱」。")
+    ui.section("市场一句话")
+    site_macro._safe(_market, "市场解读")
+    ui.glossary()

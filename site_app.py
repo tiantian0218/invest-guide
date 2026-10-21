@@ -20,9 +20,11 @@ import site_account
 import site_lab
 import site_macro
 import site_today
+import site_ui
 
 # Streamlit Cloud 拉到新代码后只重新执行本文件，已导入的本地模块会一直是旧版，直到应用重启。
-for _mod in (market_data, signals, invest, cloud_api, macro, lessons, site_account, site_macro, site_today, site_lab):
+for _mod in (market_data, signals, invest, cloud_api, macro, lessons, site_ui, site_account, site_macro, site_today,
+             site_lab):
     _mtime = Path(_mod.__file__).stat().st_mtime
     if getattr(_mod, "_loaded_mtime", None) != _mtime:
         importlib.reload(_mod)._loaded_mtime = _mtime
@@ -72,8 +74,8 @@ def signed(x, fmt="+.2f", unit="%"):
     return f'<span style="color:{UP if x >= 0 else DOWN}">{format(x, fmt)}{unit}</span>'
 
 
-st.title("美股指数定投入门")
-st.caption("用最低的成本，买下美国最大的几百家公司，然后交给时间。所有数据来自真实历史行情；历史不代表未来，不构成投资建议。")
+site_ui.css()
+site_ui.brand("美股指数定投入门", "低成本买下美国最大的几百家公司，然后交给时间")
 
 SESSION = site_account.current_session()
 tab_today, tab_acct, tab_learn, tab_tools = st.tabs(["今天", "我的账户", "看懂市场", "工具箱"])
@@ -159,15 +161,18 @@ def calc_tab():
         res = np.array(res)
         inv = init + monthly * H
         p10, p50, p90 = np.percentile(res, [10, 50, 90])
-        st.markdown(f"**总投入 ¥{inv:,.0f}**，{len(res)} 个历史起点的结果：")
-        t = pd.DataFrame({"情形": ["差的情况（10 次里最差的 1 次）", "一般情况（中位数）", "好的情况（10 次里最好的 1 次）", "历史最差"],
-                          "最后变成": [p10, p50, p90, res.min()]})
-        t["赚/亏"] = t["最后变成"] - inv
-        t["最后变成"] = t["最后变成"].map(lambda x: f"¥{x:,.0f}")
-        t["赚/亏"] = t["赚/亏"].map(lambda x: f"{'+' if x >= 0 else '−'}¥{abs(x):,.0f}")
-        st.table(t.set_index("情形"))
-        st.markdown(f"- 结果**亏钱的比例：{(res < inv).mean() * 100:.0f}%**\n"
-                    "- 投多投少只改变金额，不改变收益率；时间越长，亏钱的比例越低。\n"
+        site_ui.section(f"{years} 年一共投入 ¥{inv:,.0f}，最后可能变成", f"把 {len(res)} 个历史起点都算了一遍")
+        cols = st.columns(3)
+        for col, (name, hint, v) in zip(cols, (("差的情况", "10 次里最差的 1 次", p10), ("一般情况", "中位数", p50),
+                                              ("好的情况", "10 次里最好的 1 次", p90))):
+            gain = v - inv
+            col.markdown(site_account._card(f"{name} · {hint}", f"¥{v:,.0f}", site_account._signed(gain, "¥", 0),
+                                            UP if gain >= 0 else DOWN), unsafe_allow_html=True)
+        lose = (res < inv).mean()
+        site_ui.card(f'<div style="font-size:16px">亏钱的概率：<b class="ui-num" style="font-size:22px;color:'
+                     f'{DOWN if lose > 0.2 else site_ui.CALM}">{lose:.0%}</b>'
+                     f'<span class="ui-note">　历史最差的一次最后变成 ¥{res.min():,.0f}</span></div>')
+        st.markdown("- 投多投少只改变金额，不改变收益率；时间越长，亏钱的比例越低（把年数拉到 10 年试试）。\n"
                     "- 纳指 100 是过去 15 年表现最好的指数之一，未来收益大概率会低一些。")
         fig = go.Figure(go.Histogram(x=res / 10_000, nbinsx=50, marker_color="#1e78dc"))
         fig.add_vline(x=inv / 10_000, line=dict(color=UP, dash="dash"), annotation_text="总投入")
@@ -215,8 +220,9 @@ def pick_tab():
 
 TOOLS = {"定投计算器": calc_tab, "规则实验室": site_lab.render, "历史数据": hist_tab, "选股参考": pick_tab, "入门手册": guide_tab}
 with tab_tools:
-    TOOLS[st.radio("工具", list(TOOLS), horizontal=True, label_visibility="collapsed")]()
+    pick = st.segmented_control("工具", list(TOOLS), default="定投计算器", label_visibility="collapsed")
+    TOOLS[pick or "定投计算器"]()
 
 st.divider()
-st.caption("本网站只提供信息和计算工具，不构成投资建议，不代客理财、不带单、不收取任何费用。"
-           "请不要把银行账号和密码告诉任何人。")
+st.caption("所有数据来自真实历史行情；历史不代表未来。本网站只提供信息和计算工具，不构成投资建议，"
+           "不代客理财、不带单、不收取任何费用。请不要把银行账号和密码告诉任何人。")

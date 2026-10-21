@@ -10,6 +10,7 @@ import streamlit as st
 import streamlit.components.v1 as components
 
 import cloud_api
+import site_ui as ui
 import market_data
 
 UP, DOWN = "#d62728", "#16a34a"
@@ -195,10 +196,10 @@ def _signed(x, unit, digits=2):
 
 def _card(label, main, sub, color=None):
     style = f"color:{color};" if color else ""
-    return (f'<div style="padding:14px 16px;border-radius:12px;background:#f9fafb;height:100%">'
-            f'<div style="color:#6b7280;font-size:14px">{label}</div>'
-            f'<div style="font-size:28px;font-weight:700;{style}line-height:1.3">{main}</div>'
-            f'<div style="color:#6b7280;font-size:13px">{sub}</div></div>')
+    return (f'<div class="ui-card" style="height:100%;margin:0">'
+            f'<div style="color:{ui.MUTED};font-size:14px">{label}</div>'
+            f'<div class="ui-num" style="font-size:26px;font-weight:700;{style}line-height:1.3">{main}</div>'
+            f'<div style="color:{ui.MUTED};font-size:13px">{sub}</div></div>')
 
 
 def _cell(main, sub, color=None):
@@ -294,11 +295,7 @@ def _account_body(s):
 
     if readonly:
         _signal_box(s, owner)
-    else:
-        st.caption("今日信号在「今天」页。")
-    _whatif_box(s, owner)
-    _review_box(s, owner)
-    _monthly_box(s, owner)
+    ui.section("我的钱", None if readonly else "今天要不要操作，看「今天」页最上面的日签")
     if not dep and not tr:
         st.markdown("这个账户还没有记录。" if readonly else
                     "还没有记录。钱到账后先在下面**记一笔入金**，买入成交后**记一笔成交**。")
@@ -345,13 +342,18 @@ def _account_body(s):
                     "市值": mv_cell, "盈亏": pnl_cell,
                     "盈亏%": f'<span style="color:{color}">{pct:+.2f}%</span>' if pct is not None else "—",
                 })
-            st.markdown("**持仓**")
-            st.markdown(pd.DataFrame(rows).to_html(index=False, escape=False), unsafe_allow_html=True)
+            ui.section("持仓")
+            st.markdown(pd.DataFrame(rows).to_html(index=False, escape=False, classes="ui-table"),
+                        unsafe_allow_html=True)
             st.caption("美股以美元交易，现价和成本保留美元；市值和盈亏按今日汇率折成人民币，灰色小字为美元。"
                        "价格为最近收盘价，每 15 分钟更新；以银行 App 显示为准。")
 
+    ui.section("复盘与体检", "点开看：照做了会怎样、AI 怎么看你的个股、每月总结")
+    _whatif_box(s, owner)
+    _review_box(s, owner)
+    _monthly_box(s, owner)
     _paper_box(s, owner)
-    st.divider()
+    ui.section("记账")
     if readonly:
         _records(s, dep, tr, readonly=True)
         return
@@ -528,7 +530,7 @@ def _whatif_box(s, owner):
     def pct(x):
         return "—" if x is None else f'<span style="color:{UP if x >= 0 else DOWN}">{x:+.1%}</span>'
 
-    with st.expander(f"假如照做了 · 从 {w['since'][5:]} 起的建议回溯（数据截至美东 {w['asof'][5:]}）", expanded=True):
+    with st.expander(f"假如全部照做，现在会怎样（{w['since'][5:]} 起，截至美东 {w['asof'][5:]}）", expanded=False):
         a, b, c = st.columns(3)
         a.markdown(_card("给过的建议", f"{w['n_advice']} 条", f"照做了 {w['n_followed']} 条"), unsafe_allow_html=True)
         if abs(g) < 0.01:
@@ -632,7 +634,7 @@ def _review_box(s, owner):
     if not data or not data.get("items"):
         return
     updated = pd.Timestamp(data["updated"]).tz_convert("Asia/Shanghai")
-    with st.expander(f"个股 AI 体检 · 多空两方各说理由（更新于 {updated:%m-%d %H:%M}）", expanded=True):
+    with st.expander(f"个股 AI 体检：看多 vs 看空（更新于 {updated:%m-%d %H:%M}）", expanded=False):
         st.caption("由大模型根据行情、财务和新闻数据生成，**只是参考，不是信号**：今天该不该操作以上面的规则信号为准。")
         for t, r in data["items"].items():
             color = STANCE_COLORS.get(r["stance"], "#6b7280")
@@ -680,7 +682,7 @@ def _paper_box(s, owner):
     st_ = p.get("stats") or {}
     bt = p.get("backtest", {})
     updated = pd.Timestamp(snap["updated_at"]).tz_convert("Asia/Shanghai")
-    with st.expander(f"短线实验（模拟盘，不花钱）· 更新于 {updated:%m-%d %H:%M}", expanded=True):
+    with st.expander(f"短线实验（模拟盘，不花钱）· 更新于 {updated:%m-%d %H:%M}", expanded=False):
         st.warning("**只记账、不下单，不构成任何买卖建议。** 跑满 2 个月（约 40 笔已结束）再评估。"
                    f"历史回测 {bt.get('次数', '—')} 次：胜率 {bt.get('胜率', 0):.0%}，平均 {bt.get('平均', 0):+.1%}，"
                    f"但中位数 {bt.get('中位数', 0):+.1%}——多数时候小亏，靠极少数暴涨股拉高平均，接近买彩票。")

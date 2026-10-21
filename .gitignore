@@ -27,4 +27,5 @@
 !site_macro.py
 !site_today.py
 !site_lab.py
+!site_ui.py
 !data/hist_lab.csv
