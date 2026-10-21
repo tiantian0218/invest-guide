@@ -498,22 +498,43 @@ def _whatif_box(s, owner):
         b.markdown(_card("你的实际 vs 全部照做", c_main, c_sub, color), unsafe_allow_html=True)
         unplanned = [r for r in w["rows"] if r["kind"] == "计划外"]
         c.markdown(_card("计划外交易", f"{len(unplanned)} 笔", "和同样的钱买 QQQM 比较"), unsafe_allow_html=True)
+        if (curve := w.get("curve")) and len(curve) > 1:
+            import plotly.graph_objects as go
+            fig = go.Figure()
+            for key, name, color, dash in (("actual", "你的实际", "#2563eb", None), ("follow", "全部照做", "#f97316", "dot"),
+                                           ("dca", "只定投指数（70/30）", "#9ca3af", "dash")):
+                fig.add_scatter(x=[c["date"] for c in curve], y=[c[key] for c in curve], name=name,
+                                line=dict(color=color, dash=dash, width=2.5 if key == "actual" else 2))
+            fig.update_layout(height=260, margin=dict(l=0, r=0, t=30, b=0), hovermode="x unified",
+                              title=dict(text="三本账的浮动盈亏（美元）", font=dict(size=14)),
+                              legend=dict(orientation="h", y=-0.2), yaxis=dict(tickprefix="$"))
+            st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
+        stats = [x for x in w.get("stats", []) if any(x[k]["n"] for k in ("1天", "1周", "1月"))]
+        if stats:
+            st.markdown("**建议准不准**（买入类看之后涨没涨，卖出类看之后跌没跌）")
+            st.markdown("".join(
+                f'<div style="font-size:14px">{html.escape(x["signal"])}建议 {x["n"]} 条：'
+                + "，".join(f'{k}后对了 {x[k]["right"]}/{x[k]["n"]}' for k in ("1天", "1周", "1月") if x[k]["n"])
+                + "</div>" for x in stats), unsafe_allow_html=True)
         body = ""
         for r in w["rows"]:
             tag = ('<span style="background:#fef3c7;color:#92400e;border-radius:4px;padding:0 4px;font-size:12px">计划外</span> '
                    if r["kind"] == "计划外" else "")
+            h = r.get("h") or {}
+            cells = "".join(f'<td style="text-align:right">{pct(h.get(k))}</td>' for k in ("1天", "1周", "1月"))
             body += (f'<tr style="border-top:1px solid #eef0f3"><td style="white-space:nowrap">{r["date"][5:]}</td>'
                      f'<td>{tag}{html.escape(r["advice"])}<br><span style="color:#6b7280;font-size:12px">'
                      f'你：{html.escape(r["did"])}</span></td>'
-                     f'<td style="text-align:right">{pct(r.get("next"))}</td><td style="text-align:right">{pct(r.get("total"))}</td></tr>'
-                     + (f'<tr><td></td><td colspan="3" style="font-size:13px;padding-bottom:6px">→ {html.escape(r["note"])}</td></tr>'
+                     f'{cells}<td style="text-align:right">{pct(r.get("total"))}</td></tr>'
+                     + (f'<tr><td></td><td colspan="5" style="font-size:13px;padding-bottom:6px">→ {html.escape(r["note"])}</td></tr>'
                         if r.get("note") else ""))
-        st.markdown('<table style="width:100%;font-size:14px;border-collapse:collapse">'
-                    '<tr style="color:#6b7280;font-size:12px"><th style="text-align:left">日期</th><th style="text-align:left">建议 / 你的操作</th>'
-                    '<th style="text-align:right">第二天</th><th style="text-align:right">至今</th></tr>'
-                    f'{body}</table>', unsafe_allow_html=True)
-        st.caption("怎么算的：按建议当晚的美股收盘价当作假想成交价，“第二天”是下一个交易日的涨跌，“至今”是到最新收盘价的涨跌。"
-                   "计划外的买入，和“同样的钱当天买 QQQM”比较。几天、几周的对比运气成分很大，看满几个月才有参考意义。")
+        th = "".join(f'<th style="text-align:right">{k}</th>' for k in ("1天", "1周", "1月", "至今"))
+        st.markdown('<div style="overflow-x:auto"><table style="width:100%;font-size:14px;border-collapse:collapse">'
+                    '<tr style="color:#6b7280;font-size:12px"><th style="text-align:left">日期</th>'
+                    f'<th style="text-align:left">建议 / 你的操作</th>{th}</tr>{body}</table></div>', unsafe_allow_html=True)
+        st.caption("怎么算的：按建议当晚的美股收盘价当作假想成交价；1天/1周/1月是之后第 1、5、21 个交易日的涨跌，“至今”到最新收盘价。"
+                   f"影响金额已扣佣金（按你历史成交的平均费率 {w.get('fee_rate', 0):.2%}）。计划外的买入和“同样的钱当天买 QQQM”比较；"
+                   "“只定投指数”是把你每笔买入的钱按 70/30 买 QQQM/SPYM。几天、几周的对比运气成分很大，看满几个月才有参考意义。")
 
 
 def _paper_box(s, owner):
