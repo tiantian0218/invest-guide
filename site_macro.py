@@ -80,7 +80,7 @@ def _index_closes():
     return d
 
 
-def _signal():
+def _signal(confidence=None, stars=None):
     d = _index_closes()
     rows = ""
     for t, name in (("QQQM", "纳指 100"), ("SPYM", "标普 500")):
@@ -97,11 +97,13 @@ def _signal():
         rows += (f'<div style="display:flex;gap:10px;align-items:flex-start;padding:10px 0;border-top:1px solid #eef0f3">'
                  f'<span style="background:{color};color:#fff;border-radius:6px;padding:2px 8px;font-weight:700;white-space:nowrap">{sig}</span>'
                  f'<div><b>{t} · {name}</b> <span style="color:{UP if chg >= 0 else DOWN}">{chg:+.2%}</span>'
-                 f'<div style="font-size:14px;line-height:1.5">{why}</div></div></div>')
+                 f'<div style="font-size:14px;line-height:1.5">{why}</div>'
+                 + (f'<div style="font-size:12px;color:{MUTED};margin-top:2px">把握度 {stars(confidence(t, sig)[0])} · '
+                    f'{html.escape(confidence(t, sig)[1])}</div>' if confidence else "")
+                 + '</div></div>')
     st.markdown(_box(f'<b style="font-size:17px">给指数定投者的信号</b>{rows}'), unsafe_allow_html=True)
     st.caption("指数没有“卖出信号”：只在你需要用钱、或接近目标时按计划慢慢卖。我们用 1999 年以来的数据测过，"
-               "按利率、恐慌指数等宏观数据择时，结果都不如按时定投，所以下面的宏观内容只用来理解市场。"
-               "登录后在「我的账户」能看到你自己的完整信号（包括个股止损）。")
+               "按利率、恐慌指数等宏观数据择时，结果都不如按时定投，所以宏观内容只用来理解市场。")
 
 
 # ---------------------------------------------------------------- ① 今天为什么涨跌

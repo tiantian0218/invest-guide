@@ -78,7 +78,7 @@ def _status():
     now = pd.Timestamp.now(tz="Asia/Shanghai")
     dot = "#16a34a" if is_open else "#9ca3af"
     st.markdown(f'<div style="color:{MUTED};font-size:14px">北京时间 {now:%m月%d日 %H:%M} · '
-                f'<span style="color:{dot}">●</span> 美股{html.escape(text)}</div>', unsafe_allow_html=True)
+                f'<span style="color:{dot}">●</span> {html.escape(text)}</div>', unsafe_allow_html=True)
 
 
 def _personal(s):
@@ -92,7 +92,7 @@ def _personal(s):
         site_account.signal_card(sig, snap["updated_at"], confidence, stars)
     else:
         st.info("还没有收到你的今日信号（本机推送程序每天早上会上传一次）。下面先显示通用的指数信号。")
-        site_macro._signal()
+        site_macro._signal(confidence, stars)
     return site_account.money_strip(s)
 
 
@@ -158,9 +158,9 @@ def render(s):
             total = _personal(s)
         except Exception as e:
             st.info(f"个人数据暂时读取失败（{type(e).__name__}），先显示通用信号。")
-            site_macro._signal()
+            site_macro._signal(confidence, stars)
     else:
-        site_macro._signal()
+        site_macro._signal(confidence, stars)
         st.caption("登录后（「我的账户」页），这里会显示你自己的信号、持仓和盈亏。")
     st.markdown("**把握度怎么看：** ★★★ 有几十年历史数据支持；★★ 风控或常识规则，有道理但优势不大；"
                 "★ 证据弱，只作提醒；☆ 实验中。星级说的是规则有多可靠，不是“明天会涨”的把握。")
