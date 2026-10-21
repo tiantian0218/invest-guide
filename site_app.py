@@ -17,11 +17,12 @@ import macro
 import market_data
 import signals
 import site_account
+import site_lab
 import site_macro
 import site_today
 
 # Streamlit Cloud 拉到新代码后只重新执行本文件，已导入的本地模块会一直是旧版，直到应用重启。
-for _mod in (market_data, signals, invest, cloud_api, macro, lessons, site_account, site_macro, site_today):
+for _mod in (market_data, signals, invest, cloud_api, macro, lessons, site_account, site_macro, site_today, site_lab):
     _mtime = Path(_mod.__file__).stat().st_mtime
     if getattr(_mod, "_loaded_mtime", None) != _mtime:
         importlib.reload(_mod)._loaded_mtime = _mtime
@@ -212,7 +213,7 @@ def pick_tab():
                     "≥5 位分析师覆盖。综合分 = 动量 50% + 利润率 25% + 分析师目标价空间 25%。")
 
 
-TOOLS = {"定投计算器": calc_tab, "历史数据": hist_tab, "选股参考": pick_tab, "入门手册": guide_tab}
+TOOLS = {"定投计算器": calc_tab, "规则实验室": site_lab.render, "历史数据": hist_tab, "选股参考": pick_tab, "入门手册": guide_tab}
 with tab_tools:
     TOOLS[st.radio("工具", list(TOOLS), horizontal=True, label_visibility="collapsed")]()
 

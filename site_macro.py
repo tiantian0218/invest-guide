@@ -90,7 +90,7 @@ def _signal(confidence=None, stars=None):
         dd = float(c.iloc[-1] / c.iloc[-252:].max() - 1)
         chg = float(c.iloc[-1] / c.iloc[-2] - 1)
         if dd <= -0.20:
-            sig, color, why = "加码", UP, f"距一年高点 {dd:.0%}，进入大跌区。历史上这时用新增的钱（不是借钱）多买一些，长期回报更好。"
+            sig, color, why = "加码", UP, f"距一年高点 {dd:.0%}，进入大跌区。最重要的是照常定投、不要停；有本来不打算投资的结余可以多投一些，但不要借钱，也不要平时攒着现金专等大跌。"
         else:
             sig, color, why = "按计划买", "#1e78dc", (f"距一年高点 {dd:.0%}。定投日照常买，其他日子不用操作；"
                                                     "不因为涨了追加，也不因为跌了卖出。")

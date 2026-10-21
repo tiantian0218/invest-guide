@@ -548,7 +548,7 @@ def _whatif_box(s, owner):
             fig.update_layout(height=260, margin=dict(l=0, r=0, t=30, b=0), hovermode="x unified",
                               title=dict(text="三本账的浮动盈亏（美元）", font=dict(size=14)),
                               legend=dict(orientation="h", y=-0.2), yaxis=dict(tickprefix="$"))
-            st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
+            st.plotly_chart(fig, width="stretch", config={"displayModeBar": False})
         stats = [x for x in w.get("stats", []) if any(x[k]["n"] for k in ("1天", "1周", "1月"))]
         if stats:
             st.markdown("**建议准不准**（买入类看之后涨没涨，卖出类看之后跌没跌）")
