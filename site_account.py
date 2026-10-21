@@ -297,6 +297,7 @@ def _account_body(s):
     else:
         st.caption("今日信号在「今天」页。")
     _whatif_box(s, owner)
+    _review_box(s, owner)
     if not dep and not tr:
         st.markdown("这个账户还没有记录。" if readonly else
                     "还没有记录。钱到账后先在下面**记一笔入金**，买入成交后**记一笔成交**。")
@@ -575,6 +576,55 @@ def _whatif_box(s, owner):
         st.caption("怎么算的：按建议当晚的美股收盘价当作假想成交价；1天/1周/1月是之后第 1、5、21 个交易日的涨跌，“至今”到最新收盘价。"
                    f"影响金额已扣佣金（按你历史成交的平均费率 {w.get('fee_rate', 0):.2%}）。计划外的买入和“同样的钱当天买 QQQM”比较；"
                    "“只定投指数”是把你每笔买入的钱按 70/30 买 QQQM/SPYM。几天、几周的对比运气成分很大，看满几个月才有参考意义。")
+
+
+STANCE_COLORS = {"偏多": UP, "中性": "#6b7280", "偏空": DOWN}
+
+
+def _review_box(s, owner):
+    try:
+        snap = s.get_paper(owner)
+    except cloud_api.CloudError:
+        return
+    data = ((snap or {}).get("payload") or {}).get("reviews")
+    if not data or not data.get("items"):
+        return
+    updated = pd.Timestamp(data["updated"]).tz_convert("Asia/Shanghai")
+    with st.expander(f"个股 AI 体检 · 多空两方各说理由（更新于 {updated:%m-%d %H:%M}）", expanded=True):
+        st.caption("由大模型根据行情、财务和新闻数据生成，**只是参考，不是信号**：今天该不该操作以上面的规则信号为准。")
+        for t, r in data["items"].items():
+            color = STANCE_COLORS.get(r["stance"], "#6b7280")
+            st.markdown(
+                f'<div style="display:flex;gap:10px;align-items:baseline;margin-top:8px">'
+                f'<span style="background:{color};color:#fff;border-radius:6px;padding:2px 8px;font-weight:700">{html.escape(r["stance"])}</span>'
+                f'<b style="font-size:17px">{html.escape(t)}</b><span style="color:#6b7280;font-size:13px">{html.escape(str(r.get("name", "")))} · '
+                f'${r["price"]:,.2f} · 把握{html.escape(str(r.get("confidence", "")))} · 美东 {r["date"][5:]}</span></div>'
+                f'<div style="font-size:15px;margin:4px 0 6px">{html.escape(str(r.get("summary", "")))}</div>', unsafe_allow_html=True)
+            a, b = st.columns(2)
+            a.markdown(f'<div style="padding:10px 12px;border-radius:10px;background:#fef2f2;height:100%">'
+                       f'<b style="color:{UP}">看多理由</b><ul style="margin:4px 0 0;padding-left:18px;font-size:14px">'
+                       + "".join(f"<li>{html.escape(x)}</li>" for x in r.get("bull") or []) + "</ul></div>", unsafe_allow_html=True)
+            b.markdown(f'<div style="padding:10px 12px;border-radius:10px;background:#f0fdf4;height:100%">'
+                       f'<b style="color:{DOWN}">看空理由</b><ul style="margin:4px 0 0;padding-left:18px;font-size:14px">'
+                       + "".join(f"<li>{html.escape(x)}</li>" for x in r.get("bear") or []) + "</ul></div>", unsafe_allow_html=True)
+            extra = []
+            if r.get("risks"):
+                extra.append("<b>接下来留意：</b>" + "；".join(html.escape(x) for x in r["risks"]))
+            if r.get("rule"):
+                extra.append(f"<b>规则信号：</b>{html.escape(r['rule'])}")
+            if r.get("vs_rule"):
+                extra.append(f"<b>AI 对规则的看法：</b>{html.escape(r['vs_rule'])}")
+            if extra:
+                st.markdown('<div style="font-size:14px;line-height:1.6;margin:6px 0 4px">' + "<br>".join(extra) + "</div>",
+                            unsafe_allow_html=True)
+        tr = data.get("track") or {}
+        by = tr.get("by") or {}
+        scored = {k: v for k, v in by.items() if v.get("n")}
+        if scored:
+            st.markdown("**AI 看法的成绩**（偏多后跑赢 QQQM 算对，偏空后跑输算对，中性不计）："
+                        + "，".join(f"{k}后对了 {v['right']}/{v['n']}" for k, v in scored.items()))
+        else:
+            st.caption(f"AI 已给出 {tr.get('n', 0)} 次看法，满 1 周后开始打分。成绩差就说明它不值得听。")
 
 
 def _paper_box(s, owner):
