@@ -1,4 +1,5 @@
 """网站首页「今天」：每天打开只需要看最上面那张日签。往下依次是：我的钱 → 每一项怎么做 → 心理准备 → 市场一句话。"""
+import numpy as np
 import pandas as pd
 import streamlit as st
 
@@ -189,7 +190,76 @@ def _rows(rows, title="每一项怎么做"):
         st.caption("指数没有“卖出信号”：只在需要用钱、或接近目标时按计划慢慢卖。信号全部来自写死的规则，不构成投资建议。")
 
 
-# ---------------------------------------------------------------- 心理准备
+# ---------------------------------------------------------------- 收益与风险预期
+HORIZONS = {"1 个月": 1, "3 个月": 3, "6 个月": 6, "1 年": 12, "3 年": 36, "5 年": 60, "10 年": 120}
+
+
+@st.cache_data(ttl=86400, show_spinner=False)
+def outcomes(dca):
+    """70/30 组合在每个历史起点放 N 个月后的结果（终值 / 投入）。dca=True 为每月投入同样的钱。"""
+    px = _history()
+    m = px.resample("ME").last()
+    r = (WEIGHT_Q * m["QQQ"].pct_change() + (1 - WEIGHT_Q) * m["SPY"].pct_change()).dropna().values
+    out = {}
+    for name, h in HORIZONS.items():
+        vals = []
+        for i in range(len(r) - h + 1):
+            if dca:
+                v = 0.0
+                for k in range(h):
+                    v = (v + 1) * (1 + r[i + k])
+                vals.append(v / h)
+            else:
+                vals.append(float(np.prod(1 + r[i:i + h])))
+        a = np.array(vals)
+        out[name] = {"min": a.min(), "p10": np.percentile(a, 10), "p50": np.median(a), "p90": np.percentile(a, 90),
+                     "max": a.max(), "loss": float((a < 1).mean()), "n": len(a)}
+    return {"start": int(m.index[0].year), "rows": out}
+
+
+def _outcome_chart(rows):
+    import plotly.graph_objects as go
+    xs = list(rows)
+    pct = lambda k: [(rows[x][k] - 1) * 100 for x in xs]
+    fig = go.Figure()
+    fig.add_bar(x=xs, y=[b - a for a, b in zip(pct("min"), pct("max"))], base=pct("min"), width=0.08,
+                marker_color="#cbd5e1", name="历史最差 ~ 最好", hoverinfo="skip")
+    fig.add_bar(x=xs, y=[b - a for a, b in zip(pct("p10"), pct("p90"))], base=pct("p10"), width=0.42,
+                marker_color="#93c5fd", name="10 次里有 8 次落在这里", hoverinfo="skip")
+    fig.add_scatter(x=xs, y=pct("p50"), mode="markers+text", marker=dict(color=ui.INK, size=9), name="一般情况",
+                    text=[f"{v:+.0f}%" for v in pct("p50")], textposition="middle right", textfont=dict(size=12))
+    fig.add_hline(y=0, line=dict(color=DOWN, width=1, dash="dot"))
+    fig.update_layout(height=320, barmode="overlay", margin=dict(l=0, r=0, t=10, b=0), hovermode=False,
+                      legend=dict(orientation="h", y=-0.18), yaxis=dict(ticksuffix="%", title=None))
+    st.plotly_chart(fig, config={"displayModeBar": False})
+
+
+def _outcomes(amount, dca, personal):
+    data = outcomes(dca)
+    rows = data["rows"]
+    unit = f"每月 ¥{amount:,.0f}" if dca else f"一次投入 ¥{amount:,.0f}"
+    _outcome_chart(rows)
+    body = ""
+    for name, h in HORIZONS.items():
+        o = rows[name]
+        invested = amount * (h if dca else 1)
+        cell = lambda k: (f'<b class="ui-num" style="color:{UP if o[k] >= 1 else DOWN}">¥{invested * o[k]:,.0f}</b>'
+                          f'<br><span class="ui-note">{(o[k] - 1):+.0%}</span>')
+        loss_color = WARN if o["loss"] >= 0.2 else ui.INK if o["loss"] >= 0.08 else CALM
+        body += (f'<tr><td><b>{name}</b><br><span class="ui-note">投入 ¥{invested:,.0f}</span></td>'
+                 f'<td>{cell("p10")}</td><td>{cell("p50")}</td><td>{cell("p90")}</td>'
+                 f'<td><b class="ui-num" style="color:{loss_color}">{o["loss"]:.0%}</b></td></tr>')
+    st.markdown(f'<table class="ui-table"><tr><th>放多久</th><th>差的情况</th><th>一般情况</th><th>好的情况</th>'
+                f'<th>亏钱概率</th></tr>{body}</table>', unsafe_allow_html=True)
+    short, long = rows["1 个月"], rows["10 年"]
+    st.caption(f"{unit}，按 {data['start']} 年以来每个月都当一次起点算（70% 纳指 100 + 30% 标普 500，含分红）。"
+               "“差的情况”是 10 次里最差的 1 次，“好的情况”是 10 次里最好的 1 次。"
+               f"放 1 个月亏钱的概率是 {short['loss']:.0%}，放 10 年降到 {long['loss']:.0%}：时间是最好的风险控制。")
+    ui.ask(f"<b>问自己一句：</b>表里“差的情况”那一列，真发生在你身上，你能拿住不卖吗？"
+           f"历史最差的一次，放 1 年会{'少' if dca else '跌'}到 {rows['1 年']['min'] - 1:.0%}。"
+           "如果承受不了，就降低纳指比例或少投一些（工具箱 · 定投计算器可以试）。历史不代表未来。")
+
+
 def _risk(amount, personal):
     ev = evidence()
     typical = amount * ev["typical_year_dd"]
@@ -210,8 +280,6 @@ def _risk(amount, personal):
             f'年内最多浮亏一般在 <b class="ui-num" style="color:{DOWN};white-space:nowrap">{ev["typical_year_dd"]:.0%}（约 −¥{abs(typical):,.0f}）</b>，'
             f'这是正常波动。遇到大危机时：</div>{rows}'
             f'<div class="ui-note" style="margin-top:6px">回本时间从最高点算；期间继续定投，回本会更快。历史不代表未来，未来的跌幅可能更大。</div>')
-    ui.ask("<b>问自己一句：</b>真遇到这种跌幅，我能拿住不卖吗？如果不能，说明纳指比例偏高或投入偏多，"
-           "可以在「工具箱 · 定投计算器」里试试更低的比例。")
 
 
 # ---------------------------------------------------------------- 市场一句话
@@ -221,6 +289,7 @@ def _market():
     ui.card(f'<div style="color:{MUTED};font-size:13px">美东 {esc(w["date"])} 收盘</div>'
             f'<div style="font-size:17px;font-weight:700;margin:2px 0 4px">{esc(lines[0])}</div>'
             + "".join(f'<div style="font-size:14px;line-height:1.6">{esc(x)}</div>' for x in lines[1:3]))
+    ui.ai_card(full=False)
     e = _next_event()
     if e:
         ui.card(f'<div style="color:{MUTED};font-size:13px">下一件大事 · {esc(e["when"])}（北京时间 {e["bj"]:%m/%d %H:%M}）</div>'
@@ -257,9 +326,16 @@ def render(s):
         if s is None:
             st.caption("在「我的账户」登录后，这里会换成按你自己持仓算出来的信号。")
 
-    ui.section("心理准备：如果大跌", "先想清楚最坏情况，真遇到时才拿得住")
-    amount = total or st.number_input("想投入多少钱（元）", 1000, 10_000_000, 10_000, step=1000)
-    site_macro._safe(lambda: _risk(amount, bool(total)), "风险测算")
+    ui.section("收益与风险预期：放多久，可能变成多少", "涨和跌都算给你看，先想清楚最坏情况，真遇到时才拿得住")
+    a, b = st.columns([1, 1])
+    mode = a.segmented_control("投入方式", ["一次性投入", "每月定投"], default="一次性投入", key="today_mode")
+    dca = mode == "每月定投"
+    default = 2000 if dca else int(round(total or 10_000, -2))
+    amount = b.number_input("每月投入（元）" if dca else "投入多少钱（元）", 100, 10_000_000, default, step=500,
+                            key=f"today_amt_{dca}")
+    site_macro._safe(lambda: _outcomes(amount, dca, bool(total)), "收益测算")
+    with st.expander("历史上的几次大危机，账户会跌多少、多久回本"):
+        site_macro._safe(lambda: _risk(amount if not dca else amount * 12, bool(total) and not dca), "风险测算")
 
     ui.section("市场一句话")
     site_macro._safe(_market, "市场解读")

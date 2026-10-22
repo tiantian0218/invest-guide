@@ -218,7 +218,8 @@ def pick_tab():
                     "≥5 位分析师覆盖。综合分 = 动量 50% + 利润率 25% + 分析师目标价空间 25%。")
 
 
-TOOLS = {"定投计算器": calc_tab, "规则实验室": site_lab.render, "历史数据": hist_tab, "选股参考": pick_tab, "入门手册": guide_tab}
+TOOLS = {"定投计算器": calc_tab, "规则实验室": site_lab.render, "历史数据": hist_tab, "选股参考": pick_tab, "入门手册": guide_tab,
+         "功能地图": site_ui.feature_map}
 with tab_tools:
     pick = st.segmented_control("工具", list(TOOLS), default="定投计算器", label_visibility="collapsed")
     TOOLS[pick or "定投计算器"]()

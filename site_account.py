@@ -353,6 +353,8 @@ def _account_body(s):
     _review_box(s, owner)
     _monthly_box(s, owner)
     _paper_box(s, owner)
+    if not readonly:
+        _ai_desk(s)
     ui.section("记账")
     if readonly:
         _records(s, dep, tr, readonly=True)
@@ -600,6 +602,11 @@ def _monthly_box(s, owner):
         if r.get("market"):
             st.caption("同期市场：" + "，".join(f"{t} {v:+.1%}" for t, v in r["market"].items())
                        + "。一个月的涨跌基本是运气，长期坚持才看得出差别。")
+        if c := r.get("coach"):
+            ui.card(f'<div class="ui-note">AI 教练点评（Grok）</div>'
+                    f'<div style="font-size:14px;line-height:1.8"><b>做得好：</b>{html.escape(c["good"])}'
+                    + (f'<br><b>可以改进：</b>{html.escape(c["improve"])}' if c.get("improve") else "")
+                    + f'<br><b>下个月记住：</b>{html.escape(c["next"])}</div>', f"border-left:3px solid {ui.ACT}")
         if r["n_advice"]:
             st.markdown(f"**照做情况**：{r['n_advice']} 条建议照做了 {r['n_followed']} 条")
         for x in r.get("missed", []) + [f"计划外：{u}" for u in r.get("unplanned", [])]:
@@ -635,6 +642,7 @@ def _review_box(s, owner):
         return
     updated = pd.Timestamp(data["updated"]).tz_convert("Asia/Shanghai")
     with st.expander(f"个股 AI 体检：看多 vs 看空（更新于 {updated:%m-%d %H:%M}）", expanded=False):
+        ui.origin("ai_review")
         st.caption("由大模型根据行情、财务和新闻数据生成，**只是参考，不是信号**：今天该不该操作以上面的规则信号为准。")
         for t, r in data["items"].items():
             color = STANCE_COLORS.get(r["stance"], "#6b7280")
@@ -669,6 +677,92 @@ def _review_box(s, owner):
                         + "，".join(f"{k}后对了 {v['right']}/{v['n']}" for k, v in scored.items()))
         else:
             st.caption(f"AI 已给出 {tr.get('n', 0)} 次看法，满 1 周后开始打分。成绩差就说明它不值得听。")
+
+
+ACTION_COLORS = {"买入": UP, "小仓位试水": "#f97316", "观望": "#6b7280", "持有": "#6b7280", "减仓": "#0d9488", "卖出": DOWN}
+VIEW_COLORS = {"偏多": UP, "中性": "#6b7280", "偏空": DOWN}
+
+
+def _research_card(r):
+    d = r["decision"]
+    color = ACTION_COLORS.get(d.get("action"), "#6b7280")
+    st.markdown(
+        f'<div style="display:flex;gap:10px;align-items:baseline;flex-wrap:wrap">{ui.tag(d.get("action", ""), color)}'
+        f'<b style="font-size:17px">{html.escape(r["ticker"])}</b><span class="ui-note">{html.escape(str(r.get("name", "")))} · '
+        f'${r["price"]:,.2f} · 把握{html.escape(str(d.get("confidence", "")))} · 美东 {r["date"][5:]}</span></div>'
+        f'<div style="font-size:16px;font-weight:600;margin:6px 0">{html.escape(str(d.get("summary", "")))}</div>',
+        unsafe_allow_html=True)
+    t1, t2, t3 = st.tabs(["结论和计划", "三位分析师", "多空辩论"])
+    with t1:
+        st.markdown("".join(f"- {html.escape(x)}\n" for x in d.get("reasons") or []))
+        rows = [(k, d.get(v)) for k, v in (("仓位", "position"), ("怎么做", "plan"), ("认错离场", "stop"),
+                                           ("会改变判断", "change"), ("适合持有", "horizon")) if d.get(v)]
+        st.markdown('<table class="ui-table">' + "".join(
+            f'<tr><td style="white-space:nowrap;color:{ui.MUTED}">{k}</td><td>{html.escape(str(v))}</td></tr>' for k, v in rows)
+                    + "</table>", unsafe_allow_html=True)
+    with t2:
+        for k, rep in r["reports"].items():
+            extra = [f"{label}：{rep[f]}" for f, label in (("valuation", "估值"), ("support", "支撑"), ("resistance", "压力"))
+                     if rep.get(f)]
+            st.markdown(f'{ui.tag(rep.get("view", ""), VIEW_COLORS.get(rep.get("view"), "#6b7280"))} <b>{k}分析师</b>',
+                        unsafe_allow_html=True)
+            st.markdown("".join(f"- {html.escape(x)}\n" for x in rep.get("points", []) + extra + rep.get("events", [])))
+    with t3:
+        a, b = st.columns(2)
+        for col, key, label, bg, fg in ((a, "bull", "看多研究员", "#fef2f2", UP), (b, "bear", "看空研究员", "#f0fdf4", DOWN)):
+            side = r["debate"][key]
+            col.markdown(f'<div style="padding:10px 12px;border-radius:10px;background:{bg}"><b style="color:{fg}">{label}</b>'
+                         f'<ul style="margin:4px 0 0;padding-left:18px;font-size:14px">'
+                         + "".join(f"<li>{html.escape(x)}</li>" for x in side.get("points", []))
+                         + f'</ul><div class="ui-note">反驳对方：{html.escape(str(side.get("rebut", "")))}</div></div>',
+                         unsafe_allow_html=True)
+
+
+def _ai_desk(s):
+    ui.section("问 AI", "研究一只股票，或者问一个投资问题；由你电脑上的 AI 回答，几分钟后回来看")
+    ui.origin("research")
+    try:
+        snap = s.get_paper()
+    except cloud_api.CloudError:
+        st.caption("暂时连不上数据库，稍后再试。")
+        return
+    payload = (snap or {}).get("payload") or {}
+    reqs, answers = payload.get("requests") or [], payload.get("answers") or {}
+    with st.form("ai_ask", clear_on_submit=True):
+        kind = st.radio("想做什么", ["个股研究", "问一个问题"], horizontal=True, label_visibility="collapsed")
+        q = st.text_input("内容", placeholder="个股研究：输入名字或代码，如 英伟达、AAPL；问问题：如 为什么利率涨了纳指会跌？",
+                          label_visibility="collapsed")
+        if st.form_submit_button("提交", type="primary") and q.strip():
+            fresh = (s.get_paper() or {}).get("payload") or {}
+            fresh["requests"] = (fresh.get("requests") or [])[-29:] + [{
+                "id": secrets.token_hex(4), "kind": "research" if kind == "个股研究" else "ask", "q": q.strip()[:200],
+                "at": pd.Timestamp.now(tz="Asia/Shanghai").isoformat()}]
+            s.put_paper(fresh)
+            st.rerun()
+    st.caption("你的 Mac 每 2 分钟看一次有没有新问题；个股研究要 6 次 AI 调用，大约 3–5 分钟。"
+               "Mac 需要开机，并连着能访问网站数据库的网络（目前公司网络可以）。")
+    if not reqs:
+        return
+    if st.button("刷新结果"):
+        st.rerun()
+    for i, r in enumerate(reversed(reqs[-8:])):
+        a = answers.get(r["id"]) or {}
+        label = ("个股研究" if r["kind"] == "research" else "问答") + f" · {r['q']}"
+        when = pd.Timestamp(r["at"]).tz_convert("Asia/Shanghai")
+        if a.get("status") == "done":
+            res = a["result"]
+            head = f"{res['decision']['action']} · " if r["kind"] == "research" else ""
+            with st.expander(f"{head}{label}（{when:%m-%d %H:%M}）", expanded=i == 0):
+                if r["kind"] == "research":
+                    _research_card(res)
+                else:
+                    st.markdown(res["answer"])
+        else:
+            state = {"running": "AI 正在研究…", "error": f"没成功：{a.get('error', '')}"}.get(a.get("status"), "排队中，等你的 Mac 接单")
+            st.markdown(f'<div class="ui-row"><span class="ui-note">{when:%m-%d %H:%M}</span>'
+                        f'<span style="flex:1">{html.escape(label)}</span><span class="ui-note">{html.escape(state)}</span></div>',
+                        unsafe_allow_html=True)
+    st.caption("AI 会出错。个股研究的每条建议都会被记录，1 周、1 个月后和纳指比，成绩显示在上面的「个股 AI 体检」里。")
 
 
 def _paper_box(s, owner):

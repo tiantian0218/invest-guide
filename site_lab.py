@@ -5,6 +5,8 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
+import site_ui as ui
+
 import invest
 
 ROOT = Path(__file__).resolve().parent
@@ -156,8 +158,11 @@ def _pitfalls():
 def render():
     st.markdown("网站给出的每条规则，都应该先经得起历史数据的检验。这一页把检验过程摊开给你看。")
     st.subheader("① 大跌加码：攒钱等大跌划算吗")
+    ui.origin("dip")
     _dip_section()
     st.subheader("② 分散：加一点不跟股市走的资产会怎样")
+    ui.origin("diversify")
     _diversify_section()
     st.subheader("③ 看懂回测的四个陷阱")
+    ui.origin("pitfalls")
     _pitfalls()

@@ -7,6 +7,7 @@ import streamlit as st
 
 import lessons
 import macro
+import site_ui as ui
 
 UP, DOWN, MUTED = "#d62728", "#16a34a", "#6b7280"
 BOX = "padding:14px 16px;border-radius:12px;background:#f9fafb;margin:6px 0"
@@ -117,6 +118,7 @@ def _today():
         f'<div style="font-size:22px;font-weight:700;color:{color};margin:4px 0">{html.escape(first)}</div>'
         f'<ul style="margin:6px 0 0 0;padding-left:20px">{items}</ul>'), unsafe_allow_html=True)
     st.caption("这里说的是“可能的原因”，是根据公开数据推算的相关性，不是确定的因果。")
+    ui.ai_card()
 
 
 # ---------------------------------------------------------------- ② 接下来的大事
@@ -320,9 +322,12 @@ def render(learn_only=False):
     sections = [("今日信号", _signal, "信号"), ("今天为什么涨跌", _today, "涨跌解读"), ("接下来的大事", _events, "宏观日历"),
                 ("每日一课", _lesson_box, "课程"), ("利率：钱的价格", _rates, "利率数据"), ("通胀和就业", _economy_box, "经济数据"),
                 ("AI 产业链地图", _chain_box, "产业链行情"), ("大佬在买什么（13F 持仓）", _f13_box, "持仓报告")]
+    origins = {"今天为什么涨跌": "today_why", "接下来的大事": "events", "利率：钱的价格": "rates", "通胀和就业": "economy",
+               "AI 产业链地图": "chain", "大佬在买什么（13F 持仓）": "f13"}
     if learn_only:
         sections = [x for x in sections if x[0] not in ("今日信号", "今天为什么涨跌")]
-    sections = [(f"{'①②③④⑤⑥⑦⑧'[i]} {t}", fn, w) for i, (t, fn, w) in enumerate(sections)]
-    for title, fn, what in sections:
-        st.subheader(title)
+    for i, (title, fn, what) in enumerate(sections):
+        st.subheader(f"{'①②③④⑤⑥⑦⑧'[i]} {title}")
+        if title in origins:
+            ui.origin(origins[title])
         _safe(fn, what)
