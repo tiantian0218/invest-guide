@@ -124,8 +124,8 @@ def _reset_by_email():
 
 
 def _login_box():
-    st.markdown("登录后可以记录**自己的**入金和成交，网站自动算持仓和盈亏。每个人只能看到自己的数据。")
-    st.caption("请设置一个**新的**密码，不要和银行、邮箱的密码相同。本网站永远不会向你索要银行账号密码。")
+    st.caption("每个人只能看到自己的数据。请设置一个**新的**密码，不要和银行、邮箱的密码相同；"
+               "本网站永远不会向你索要银行账号密码。")
     mode = st.radio("操作", ["登录", "注册新账号", "忘记密码"], horizontal=True, label_visibility="collapsed")
     if mode == "登录":
         with st.form("login"):
@@ -257,6 +257,11 @@ def _account_body(s):
     if s is None:
         if st.session_state.pop("sb_cookie_pending", False):
             st.caption("正在恢复上次的登录…")
+        ui.section("登录后，这个工具会变成你自己的投资助理")
+        _features([("专属信号", "按你的持仓算", "「今天」页的日签换成你自己的：该买什么、买多少、哪只个股该卖。"),
+                   ("自动记账", "汇丰成交即入账", "成交邮件自动写进记录，持仓、盈亏、人民币和汇率一起算好。"),
+                   ("复盘", "照做了会怎样", "每月总结你的实际收益 vs 全部照做 vs 只定投指数，并检查仓位是否偏离。"),
+                   ("AI 研究", "个股和问答", "输入股票名字就能得到多空辩论和操作建议，成绩公开打分。")])
         _login_box()
         return
     c1, c2 = st.columns([4, 1])
@@ -299,6 +304,9 @@ def _account_body(s):
     if not dep and not tr:
         st.markdown("这个账户还没有记录。" if readonly else
                     "还没有记录。钱到账后先在下面**记一笔入金**，买入成交后**记一笔成交**。")
+        views = ["记账"] + ([] if readonly else ["自动记账与共享"])
+        view = st.segmented_control("看什么", views, default="记账", key="acct_view_empty",
+                                    label_visibility="collapsed") or "记账"
     else:
         pnl_usd = sm["total"] - sm["in_usd"]
         pct_usd = pnl_usd / sm["in_usd"] * 100 if sm["in_usd"] else 0.0
@@ -322,7 +330,10 @@ def _account_body(s):
             b.markdown(_card("总盈亏", f"{_signed(pnl_usd, '$')}（{pct_usd:+.2f}%）", "美元口径", UP if pnl_usd >= 0 else DOWN),
                        unsafe_allow_html=True)
             c.markdown(_card("可用现金", _money(sm["cash"]), "美元"), unsafe_allow_html=True)
-        if len(pos):
+        views = ["持仓", "复盘", "记账"] + ([] if readonly else ["自动记账与共享"])
+        view = st.segmented_control("看什么", views, default="持仓", key="acct_view",
+                                    label_visibility="collapsed") or "持仓"
+        if view == "持仓" and len(pos):
             rate = usdcny or 0
             rows = []
             for _, r in pos.iterrows():
@@ -342,52 +353,102 @@ def _account_body(s):
                     "市值": mv_cell, "盈亏": pnl_cell,
                     "盈亏%": f'<span style="color:{color}">{pct:+.2f}%</span>' if pct is not None else "—",
                 })
-            ui.section("持仓")
             st.markdown(pd.DataFrame(rows).to_html(index=False, escape=False, classes="ui-table"),
                         unsafe_allow_html=True)
             st.caption("美股以美元交易，现价和成本保留美元；市值和盈亏按今日汇率折成人民币，灰色小字为美元。"
                        "价格为最近收盘价，每 15 分钟更新；以银行 App 显示为准。")
+    if view == "复盘":
+        st.caption("照做了会怎样、每月总结和短线实验。AI 对你个股的看法在「AI 研究」。")
+        _whatif_box(s, owner)
+        _monthly_box(s, owner)
+        _paper_box(s, owner)
+    elif view == "记账":
+        if readonly:
+            _records(s, dep, tr, readonly=True)
+            return
+        c1, c2 = st.columns(2)
+        with c1.expander("记一笔入金（钱换成美元到账后）", expanded=not dep):
+            with st.form("dep", clear_on_submit=True):
+                d = st.date_input("到账日期")
+                cny = st.number_input("转出的人民币", min_value=0.0, value=0.0, step=500.0)
+                usd = st.number_input("到账美元", min_value=0.0, value=0.0, step=1.0)
+                note = st.text_input("备注（可不填）")
+                if st.form_submit_button("保存入金"):
+                    if usd <= 0:
+                        st.error("请填写到账美元")
+                    else:
+                        s.insert("deposits", [{"date": str(d), "cny": cny, "usd": usd, "note": note}])
+                        st.rerun()
+        with c2.expander("记一笔成交（买入成交后）", expanded=bool(dep) and not tr):
+            with st.form("trade", clear_on_submit=True):
+                d = st.date_input("成交日期")
+                t = st.text_input("代码", value="QQQM").strip().upper()
+                n = st.number_input("股数（卖出填负数）", value=1.0, step=1.0)
+                p = st.number_input("成交价（美元）", min_value=0.0, value=0.0, step=0.01, format="%.2f")
+                fee = st.number_input("佣金（美元）", min_value=0.0, value=0.0, step=1.0)
+                note = st.text_input("备注（可不填）")
+                if st.form_submit_button("保存成交"):
+                    if not t or p <= 0 or n == 0:
+                        st.error("请填写代码、股数和成交价")
+                    else:
+                        s.insert("trades", [{"date": str(d), "ticker": t, "shares": n, "price_usd": p, "fee_usd": fee, "note": note}])
+                        st.rerun()
+        _records(s, dep, tr)
+    elif view == "自动记账与共享":
+        _mail_guide()
+        _share_box(s, shares)
 
-    ui.section("复盘与体检", "点开看：照做了会怎样、AI 怎么看你的个股、每月总结")
-    _whatif_box(s, owner)
-    _review_box(s, owner)
-    _monthly_box(s, owner)
-    _paper_box(s, owner)
-    if not readonly:
-        _ai_desk(s)
-    ui.section("记账")
-    if readonly:
-        _records(s, dep, tr, readonly=True)
+
+HSBC_SENDERS = ("HSBC@notification.hsbc.com.hk", "hsbc.notifications@message.hsbc.com.hk",
+                "hsbc.communications@message.hsbc.com.hk", "donotreply@mail.hsbc.com.hk")
+
+
+def _mail_guide():
+    ui.section("汇丰成交自动记账", "成交后 10 分钟内自动写进交易记录，并推送一条微信确认；全程不需要汇丰的账号密码")
+    flow = "".join(f'<div class="ui-step"><b>{a}</b><span>{b}</span></div>' for a, b in (
+        ("汇丰", "成交后发邮件到你的 Outlook"), ("Outlook 规则", "原样重定向到 QQ 邮箱"),
+        ("你的 Mac", "每 10 分钟读一次 QQ 邮箱"), ("网站 + 微信", "写入记录、同步、推送确认")))
+    st.markdown(f'<div class="ui-flow">{flow}</div>', unsafe_allow_html=True)
+    senders = "".join(f"<code>{x}</code><br>" for x in HSBC_SENDERS)
+    ui.card(f'''<div class="ui-guide">
+<p><b>第 1 步 · 汇丰 App 打开成交邮件</b><br>「设定 → 通知 / 提示」里打开证券交易执行的电邮提示，并确认登记的电邮是你的 Outlook 地址。</p>
+<p><b>第 2 步 · Outlook 新建规则</b>（网页版：设置 → 邮件 → 规则 → 添加规则）<br>
+条件选 <b>From（发件人）</b>，一次填入下面四个汇丰地址（满足任意一个即可）：<br>{senders}
+操作选 <b>Redirect to（重定向到）</b>你的 QQ 邮箱，勾选“停止处理更多规则”，保存。</p>
+<p><b>第 3 步 · QQ 邮箱开启 IMAP</b><br>QQ 邮箱 → 设置 → 账户 → 开启 IMAP/SMTP，生成<b>授权码</b>；在 Mac 上运行
+<code>python hsbc_mail.py setup</code>，授权码由你自己输入，只存在 Mac 的钥匙串里。</p>
+<p><b>第 4 步 · 验证</b><br>下一笔成交后 10 分钟内应收到“已自动记账”的微信，并在「记账」里看到这笔记录。</p></div>''')
+    with st.expander("常见问题"):
+        st.markdown(
+            "- **为什么要“重定向”而不是“转发”？** 重定向会保留汇丰原来的发件人，程序靠它认出这是汇丰邮件。\n"
+            "- **规则里“立即运行”是灰色的？** 正常。Outlook 不允许对带转发 / 重定向的规则手动运行，它只处理之后新到的邮件。\n"
+            "- **漏了一笔怎么办？** 在 Outlook 里把那封成交邮件手动转发到 QQ 邮箱，标题保持原样；程序会从正文里取汇丰原邮件的时间，交易日期不会记错。\n"
+            "- **只填 `hsbc` 关键字行不行？** 不行。“From” 条件需要完整地址；关键字要用“Sender address includes”，"
+            "而且多个条件之间是“并且”关系，混用容易一封都不匹配。\n"
+            "- **会不会记重？** 不会。同一个交易编号只记一次。\n"
+            "- **佣金呢？** 邮件里没有佣金，先记 0，月结单出来后在记录里补上。")
+    st.caption("这套流程依赖你自己电脑上的记账程序，目前只对网站作者本人的账户生效。")
+
+
+def _features(items):
+    width = 240 if len(items) % 2 == 0 else 180
+    st.markdown(f'<div class="ui-feats" style="grid-template-columns:repeat(auto-fit,minmax({width}px,1fr))">' + "".join(
+        f'<div class="ui-feat"><div class="k">{a}</div><div class="t">{b}</div><div class="d">{c}</div></div>'
+        for a, b, c in items) + "</div>", unsafe_allow_html=True)
+
+
+def ai_tab(s):
+    ui.section("AI 研究", "几位 AI 分析师分工替你做功课：看走势、看财报、看新闻，再让看多和看空两方辩论")
+    if s is None:
+        _features([("个股研究", "输入名字就能查", "英伟达、AAPL、SpaceX 都行。技术面、基本面、消息面三份报告，多空辩论后给出买入 / 观望 / 卖出和仓位上限。"),
+                   ("问一个问题", "像问老师一样", "“利率涨了为什么纳指跌？”结合你的持仓用大白话回答。"),
+                   ("每日持仓体检", "成绩公开", "每天早上给你持有的个股做一次多空体检，1 周 / 1 个月后和纳指比，判断对不对一目了然。")])
+        ui.origin("research")
+        st.info("登录后可用，研究结果只有你自己能看到。登录入口在「我的账户」。")
         return
-    c1, c2 = st.columns(2)
-    with c1.expander("记一笔入金（钱换成美元到账后）", expanded=not dep):
-        with st.form("dep", clear_on_submit=True):
-            d = st.date_input("到账日期")
-            cny = st.number_input("转出的人民币", min_value=0.0, value=0.0, step=500.0)
-            usd = st.number_input("到账美元", min_value=0.0, value=0.0, step=1.0)
-            note = st.text_input("备注（可不填）")
-            if st.form_submit_button("保存入金"):
-                if usd <= 0:
-                    st.error("请填写到账美元")
-                else:
-                    s.insert("deposits", [{"date": str(d), "cny": cny, "usd": usd, "note": note}])
-                    st.rerun()
-    with c2.expander("记一笔成交（买入成交后）", expanded=bool(dep) and not tr):
-        with st.form("trade", clear_on_submit=True):
-            d = st.date_input("成交日期")
-            t = st.text_input("代码", value="QQQM").strip().upper()
-            n = st.number_input("股数（卖出填负数）", value=1.0, step=1.0)
-            p = st.number_input("成交价（美元）", min_value=0.0, value=0.0, step=0.01, format="%.2f")
-            fee = st.number_input("佣金（美元）", min_value=0.0, value=0.0, step=1.0)
-            note = st.text_input("备注（可不填）")
-            if st.form_submit_button("保存成交"):
-                if not t or p <= 0 or n == 0:
-                    st.error("请填写代码、股数和成交价")
-                else:
-                    s.insert("trades", [{"date": str(d), "ticker": t, "shares": n, "price_usd": p, "fee_usd": fee, "note": note}])
-                    st.rerun()
-    _records(s, dep, tr)
-    _share_box(s, shares)
+    _ai_desk(s)
+    _review_box(s, s.uid)
+    ui.origin("research")
 
 
 def _records(s, dep, tr, readonly=False):
@@ -641,7 +702,7 @@ def _review_box(s, owner):
     if not data or not data.get("items"):
         return
     updated = pd.Timestamp(data["updated"]).tz_convert("Asia/Shanghai")
-    with st.expander(f"个股 AI 体检：看多 vs 看空（更新于 {updated:%m-%d %H:%M}）", expanded=False):
+    with st.expander(f"每日持仓体检：看多 vs 看空（更新于 {updated:%m-%d %H:%M}）", expanded=False):
         ui.origin("ai_review")
         st.caption("由大模型根据行情、财务和新闻数据生成，**只是参考，不是信号**：今天该不该操作以上面的规则信号为准。")
         for t, r in data["items"].items():
@@ -719,8 +780,6 @@ def _research_card(r):
 
 
 def _ai_desk(s):
-    ui.section("问 AI", "研究一只股票，或者问一个投资问题；由你电脑上的 AI 回答，几分钟后回来看")
-    ui.origin("research")
     try:
         snap = s.get_paper()
     except cloud_api.CloudError:
@@ -762,7 +821,7 @@ def _ai_desk(s):
             st.markdown(f'<div class="ui-row"><span class="ui-note">{when:%m-%d %H:%M}</span>'
                         f'<span style="flex:1">{html.escape(label)}</span><span class="ui-note">{html.escape(state)}</span></div>',
                         unsafe_allow_html=True)
-    st.caption("AI 会出错。个股研究的每条建议都会被记录，1 周、1 个月后和纳指比，成绩显示在上面的「个股 AI 体检」里。")
+    st.caption("AI 会出错。个股研究的每条建议都会被记录，1 周、1 个月后和纳指比，成绩显示在下面的「每日持仓体检」里。")
 
 
 def _paper_box(s, owner):

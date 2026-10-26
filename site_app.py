@@ -78,13 +78,16 @@ site_ui.css()
 site_ui.brand("美股指数定投入门", "低成本买下美国最大的几百家公司，然后交给时间")
 
 SESSION = site_account.current_session()
-tab_today, tab_acct, tab_learn, tab_tools = st.tabs(["今天", "我的账户", "看懂市场", "工具箱"])
+tab_today, tab_acct, tab_ai, tab_learn, tab_tools = st.tabs(["今天", "我的账户", "AI 研究", "看懂市场", "工具箱"])
 
 with tab_today:
     site_today.render(SESSION)
 
 with tab_acct:
     site_account.account_tab(SESSION)
+
+with tab_ai:
+    site_account.ai_tab(SESSION if cloud_api.enabled() else None)
 
 
 # ---------------------------------------------------------------- 入门手册
@@ -227,5 +230,5 @@ with tab_tools:
 st.divider()
 st.caption("所有数据来自真实历史行情；历史不代表未来。本网站只提供信息和计算工具，不构成投资建议，"
            "不代客理财、不带单、不收取任何费用。请不要把银行账号和密码告诉任何人。")
-st.markdown(f'<div style="text-align:center;color:{site_ui.FAINT};font-size:12px;letter-spacing:1px;margin-top:18px">'
-            f'天天 做的小工具 · {pd.Timestamp.now(tz="Asia/Shanghai").year}</div>', unsafe_allow_html=True)
+st.markdown(f'<div class="ui-sign"><b>天天</b> 做的小工具 · {pd.Timestamp.now(tz="Asia/Shanghai").year}</div>',
+            unsafe_allow_html=True)

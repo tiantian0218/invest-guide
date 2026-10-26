@@ -157,7 +157,7 @@ def _hero(q, sig, updated_at):
         why = (f"根据你的持仓和规则算出，{updated:%m-%d %H:%M} 更新。"
                + ("具体每一项看下面。" if acts else "定投日以外，什么都不做就是最好的操作。"))
         if age > 0:
-            why += f'<br><span style="color:{WARN}">这是 {age} 天前的信号（电脑当天可能没开机），以汇丰 App 的价格为准。</span>'
+            why += f'<br><span class="warn">这是 {age} 天前的信号（电脑当天可能没开机），以汇丰 App 的价格为准。</span>'
         ui.day_card(sig["headline"], why, tone, chips)
         return
     crash = min(q["QQQM"]["dd"], q["SPYM"]["dd"]) <= -0.20

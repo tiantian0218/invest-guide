@@ -6,61 +6,97 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 
-INK, MUTED, FAINT, LINE, SURFACE = "#18223a", "#64748b", "#94a3b8", "#e6e9f0", "#f4f6fa"
+INK, MUTED, FAINT, LINE, SURFACE = "#0d1b2e", "#5b6678", "#98a1b0", "#e4e8ef", "#f4f6f9"
+NAVY, NAVY2, BRASS, BRASS_DEEP = "#0d1b2e", "#1c3256", "#b08a4e", "#8a6a37"
 UP, DOWN = "#d62728", "#16a34a"
 CALM, ACT, WARN = "#0e7c66", "#1d4ed8", "#c2410c"
 WEEKDAYS = "一二三四五六日"
+SERIF = '"Songti SC", "STSong", "Noto Serif SC", "Source Han Serif SC", "SimSun", serif'
+NUM = '"DIN Alternate", "Bahnschrift", "Roboto Condensed", "Helvetica Neue", Arial, sans-serif'
 
 CSS = f"""
 <style>
-[data-testid="stMainBlockContainer"] {{ padding-top: 1.6rem; padding-bottom: 3rem; }}
+[data-testid="stMainBlockContainer"] {{ max-width: 820px; padding-top: 1.8rem; padding-bottom: 3rem; }}
 [data-testid="stToolbar"], header[data-testid="stHeader"] {{ display: none; }}
 .stApp {{ color: {INK}; }}
-.stApp [data-baseweb="tab-list"] {{ position: sticky; top: 0; z-index: 50; background: #fff; gap: 4px; }}
-.stApp button[data-baseweb="tab"] {{ padding: 10px 14px; }}
-.stApp button[data-baseweb="tab"] p {{ font-size: 17px; font-weight: 600; }}
-.ui-num {{ font-variant-numeric: tabular-nums; }}
-.ui-brand {{ display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 2px; }}
-.ui-brand b {{ font-size: 24px; letter-spacing: .5px; }}
-.ui-brand span {{ color: {MUTED}; font-size: 14px; }}
-.ui-sec {{ margin: 28px 0 10px; }}
-.ui-sec b {{ font-size: 19px; }}
-.ui-sec span {{ display: block; color: {MUTED}; font-size: 13px; margin-top: 2px; }}
-.ui-card {{ padding: 14px 16px; border-radius: 14px; background: {SURFACE}; margin: 6px 0; }}
+.stApp [data-baseweb="tab-list"] {{ position: sticky; top: 0; z-index: 50; background: #f7f8fa; gap: 2px;
+                                   border-bottom: 1px solid {LINE}; }}
+.stApp button[data-baseweb="tab"] {{ padding: 12px 14px 10px; }}
+.stApp button[data-baseweb="tab"] p {{ font-size: 16px; font-weight: 600; color: {MUTED}; }}
+.stApp button[data-baseweb="tab"][aria-selected="true"] p {{ color: {INK}; }}
+.stApp [data-baseweb="tab-highlight"] {{ background-color: {BRASS} !important; height: 2px; }}
+.stApp [data-baseweb="tab-border"] {{ display: none; }}
+.ui-num {{ font-family: {NUM}; font-variant-numeric: tabular-nums; letter-spacing: .2px; }}
+.ui-brand {{ margin: 0 0 14px; }}
+.ui-brand .eyebrow {{ font-size: 12px; letter-spacing: 3px; color: {BRASS_DEEP}; font-weight: 600; }}
+.ui-brand .title {{ font-family: {SERIF}; font-size: 30px; font-weight: 700; letter-spacing: 1px; margin: 4px 0 2px; }}
+.ui-brand .tag {{ color: {MUTED}; font-size: 14px; }}
+.ui-brand .rule {{ width: 40px; height: 2px; background: {BRASS}; margin-top: 12px; }}
+.ui-sec {{ margin: 34px 0 12px; }}
+.ui-sec b {{ font-family: {SERIF}; font-size: 21px; font-weight: 700; letter-spacing: .5px; }}
+.ui-sec span {{ display: block; color: {MUTED}; font-size: 13px; margin-top: 3px; }}
+.ui-card {{ padding: 15px 17px; border-radius: 14px; background: #fff; border: 1px solid {LINE}; margin: 8px 0;
+           box-shadow: 0 1px 2px rgba(13,27,46,.04), 0 6px 18px rgba(13,27,46,.035); }}
 .ui-chip {{ display: inline-block; padding: 3px 10px; border-radius: 999px; font-size: 13px; margin: 0 6px 6px 0;
            background: #fff; border: 1px solid {LINE}; color: {INK}; white-space: nowrap; }}
-.ui-day {{ display: flex; gap: 18px; padding: 18px 18px 12px; border-radius: 16px; background: #fff;
-          border: 1px solid {LINE}; box-shadow: 0 1px 2px rgba(24,34,58,.05); margin: 8px 0 4px; }}
-.ui-day .date {{ min-width: 64px; text-align: center; border-right: 1px dashed {LINE}; padding-right: 16px; }}
-.ui-day .date .m {{ font-size: 13px; color: {MUTED}; }}
-.ui-day .date .d {{ font-size: 44px; font-weight: 800; line-height: 1.05; }}
-.ui-day .date .w {{ font-size: 13px; color: {MUTED}; }}
-.ui-day .verdict {{ font-size: 26px; font-weight: 800; line-height: 1.3; }}
-.ui-day .why {{ font-size: 15px; line-height: 1.6; margin: 6px 0 10px; }}
-.ui-row {{ display: flex; gap: 10px; align-items: flex-start; padding: 11px 0; border-top: 1px solid {LINE}; }}
+.ui-day {{ display: flex; gap: 20px; padding: 22px 22px 14px; border-radius: 18px; color: #fff; margin: 6px 0 6px;
+          background: radial-gradient(120% 140% at 100% 0%, {NAVY2} 0%, {NAVY} 60%);
+          box-shadow: inset 0 0 0 1px rgba(176,138,78,.35), 0 14px 34px rgba(13,27,46,.20); }}
+.ui-day .date {{ min-width: 66px; text-align: center; border-right: 1px solid rgba(176,138,78,.35); padding-right: 18px; }}
+.ui-day .date .m {{ font-size: 12px; letter-spacing: 2px; color: {BRASS}; }}
+.ui-day .date .d {{ font-family: {NUM}; font-size: 50px; line-height: 1.05; margin: 2px 0; }}
+.ui-day .date .w {{ font-size: 12px; color: rgba(255,255,255,.55); }}
+.ui-day .eyebrow {{ font-size: 12px; letter-spacing: 2px; color: {BRASS}; display: flex; align-items: center; gap: 8px; }}
+.ui-day .eyebrow i {{ width: 8px; height: 8px; border-radius: 50%; display: inline-block; }}
+.ui-day .verdict {{ font-family: {SERIF}; font-size: 30px; font-weight: 700; line-height: 1.3; margin: 4px 0 2px; }}
+.ui-day .why {{ font-size: 15px; line-height: 1.65; margin: 6px 0 12px; color: rgba(255,255,255,.82); }}
+.ui-day .ui-chip {{ background: rgba(255,255,255,.07); border-color: rgba(255,255,255,.14); color: #fff; }}
+.ui-day .ui-chip span {{ filter: brightness(1.45) saturate(1.1); }}
+.ui-day .warn {{ color: #ffb27a; }}
+.ui-row {{ display: flex; gap: 10px; align-items: flex-start; padding: 12px 0; border-top: 1px solid {LINE}; }}
 .ui-row:first-child {{ border-top: none; }}
 .ui-tag {{ color: #fff; border-radius: 6px; padding: 2px 8px; font-weight: 700; font-size: 14px; white-space: nowrap; }}
 .ui-note {{ font-size: 13px; color: {MUTED}; line-height: 1.6; }}
-.ui-ask {{ border-left: 3px solid {WARN}; padding: 8px 12px; background: #fff7ed; border-radius: 0 10px 10px 0;
-          font-size: 14px; line-height: 1.6; margin: 8px 0; }}
-table.ui-table {{ width: 100%; border-collapse: collapse; font-size: 14px; border: none; }}
-table.ui-table th {{ text-align: left; color: {MUTED}; font-weight: 500; font-size: 13px; border: none;
-                    border-bottom: 1px solid {LINE}; padding: 6px 8px; white-space: nowrap; }}
-table.ui-table td {{ border: none; border-bottom: 1px solid {LINE}; padding: 8px; vertical-align: top; }}
-.ui-origin {{ border: 1px dashed #c7d2fe; background: #f8faff; border-radius: 10px; padding: 9px 12px; margin: 4px 0 12px;
-             font-size: 14px; line-height: 1.65; }}
-.ui-origin .src {{ font-size: 12px; color: {ACT}; font-weight: 600; }}
-.ui-origin details summary {{ cursor: pointer; color: {ACT}; font-size: 13px; margin-top: 2px; }}
+.ui-ask {{ border-left: 3px solid {WARN}; padding: 9px 13px; background: #fff7ed; border-radius: 0 10px 10px 0;
+          font-size: 14px; line-height: 1.6; margin: 10px 0; }}
+table.ui-table {{ width: 100%; border-collapse: collapse; font-size: 14px; border: none; background: #fff;
+                 border-radius: 12px; overflow: hidden; box-shadow: 0 0 0 1px {LINE}; }}
+table.ui-table th {{ text-align: left; color: {MUTED}; font-weight: 500; font-size: 12px; border: none; letter-spacing: .5px;
+                    background: {SURFACE}; border-bottom: 1px solid {LINE}; padding: 8px 10px; white-space: nowrap; }}
+table.ui-table td {{ border: none; border-bottom: 1px solid {LINE}; padding: 9px 10px; vertical-align: top; }}
+table.ui-table tr:last-child td {{ border-bottom: none; }}
+.ui-origin {{ border-left: 3px solid {BRASS}; background: #fbfaf7; border-radius: 0 10px 10px 0; padding: 9px 13px;
+             margin: 4px 0 14px; font-size: 14px; line-height: 1.65; }}
+.ui-origin .src {{ font-size: 12px; color: {BRASS_DEEP}; font-weight: 600; letter-spacing: .5px; }}
+.ui-origin details summary {{ cursor: pointer; color: {BRASS_DEEP}; font-size: 13px; margin-top: 2px; }}
 .ui-origin details div {{ margin-top: 6px; }}
+.ui-feats {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px; margin: 6px 0 14px; }}
+.ui-feat {{ background: #fff; border: 1px solid {LINE}; border-radius: 14px; padding: 14px 15px; }}
+.ui-feat .k {{ font-size: 12px; letter-spacing: 1.5px; color: {BRASS_DEEP}; font-weight: 600; }}
+.ui-feat .t {{ font-family: {SERIF}; font-size: 18px; font-weight: 700; margin: 4px 0; }}
+.ui-feat .d {{ font-size: 13px; color: {MUTED}; line-height: 1.6; }}
+.ui-flow {{ display: flex; gap: 8px; flex-wrap: wrap; margin: 6px 0 4px; }}
+.ui-step {{ flex: 1 1 120px; background: #fff; border: 1px solid {LINE}; border-radius: 12px; padding: 10px 12px; position: relative; }}
+.ui-step b {{ display: block; font-size: 14px; }}
+.ui-step span {{ font-size: 12px; color: {MUTED}; }}
+.ui-guide p {{ margin: 0 0 12px; font-size: 14px; line-height: 1.75; }}
+.ui-guide code {{ font-size: 12.5px; }}
+.ui-sign {{ text-align: center; color: {FAINT}; font-size: 12px; letter-spacing: 2px; margin-top: 18px; }}
+.ui-sign b {{ font-family: {SERIF}; color: {BRASS_DEEP}; font-weight: 700; letter-spacing: 3px; }}
+[data-testid="stExpander"] details {{ background: #fff; border-color: {LINE}; border-radius: 12px; }}
 [data-testid="stExpander"] summary p {{ font-weight: 600; }}
 .stApp [data-testid="stHeadingWithActionElements"] h3 {{ font-size: 20px; font-weight: 700; padding-top: 18px; }}
 .stApp [data-testid="stHeadingWithActionElements"] h2 {{ font-size: 22px; font-weight: 700; }}
 @media (max-width: 640px) {{
-  .ui-day {{ gap: 12px; padding: 14px 12px 8px; }}
-  .ui-day .date {{ min-width: 48px; padding-right: 10px; }}
-  .ui-day .date .d {{ font-size: 34px; }}
-  .ui-day .verdict {{ font-size: 21px; }}
+  .stApp button[data-baseweb="tab"] {{ padding: 10px 9px 8px; }}
+  .stApp button[data-baseweb="tab"] p {{ font-size: 14.5px; }}
+  .ui-brand .title {{ font-size: 25px; }}
+  .ui-day {{ gap: 13px; padding: 16px 14px 10px; }}
+  .ui-day .date {{ min-width: 48px; padding-right: 12px; }}
+  .ui-day .date .d {{ font-size: 38px; }}
+  .ui-day .verdict {{ font-size: 23px; }}
 }}
+@media (prefers-reduced-motion: reduce) {{ * {{ transition: none !important; animation: none !important; }} }}
 </style>
 """
 
@@ -73,8 +109,9 @@ def esc(x):
     return html.escape(str(x))
 
 
-def brand(title, tagline):
-    st.markdown(f'<div class="ui-brand"><b>{esc(title)}</b><span>{esc(tagline)}</span></div>', unsafe_allow_html=True)
+def brand(title, tagline, eyebrow="天天的定投笔记"):
+    st.markdown(f'<div class="ui-brand"><div class="eyebrow">{esc(eyebrow)}</div><div class="title">{esc(title)}</div>'
+                f'<div class="tag">{esc(tagline)}</div><div class="rule"></div></div>', unsafe_allow_html=True)
 
 
 def section(title, hint=None):
@@ -98,13 +135,14 @@ def tag(text, color):
     return f'<span class="ui-tag" style="background:{color}">{esc(text)}</span>'
 
 
-def day_card(verdict, why, tone, chips=(), extra=""):
+def day_card(verdict, why, tone, chips=(), extra="", label="今日一签"):
     now = pd.Timestamp.now(tz="Asia/Shanghai")
     st.markdown(
-        f'<div class="ui-day" style="border-top:5px solid {tone}">'
-        f'<div class="date"><div class="m">{now.month} 月</div><div class="d ui-num">{now.day}</div>'
+        f'<div class="ui-day">'
+        f'<div class="date"><div class="m">{now.month} 月</div><div class="d">{now.day}</div>'
         f'<div class="w">周{WEEKDAYS[now.weekday()]}</div></div>'
-        f'<div style="flex:1;min-width:0"><div class="verdict" style="color:{tone}">{esc(verdict)}</div>'
+        f'<div style="flex:1;min-width:0"><div class="eyebrow"><i style="background:{tone}"></i>{esc(label)}</div>'
+        f'<div class="verdict">{esc(verdict)}</div>'
         f'<div class="why">{why}</div>{"".join(chips)}{extra}</div></div>', unsafe_allow_html=True)
 
 
@@ -206,8 +244,8 @@ def origin(key):
 MODULE_PLACE = {"today_why": "看懂市场 · 今天为什么涨跌（「今天」页的“市场一句话”也用它）", "events": "看懂市场 · 接下来的大事",
                 "rates": "看懂市场 · 利率", "economy": "看懂市场 · 通胀和就业", "chain": "看懂市场 · AI 产业链地图",
                 "f13": "看懂市场 · 大佬在买什么", "dip": "工具箱 · 规则实验室 ①", "diversify": "工具箱 · 规则实验室 ②",
-                "pitfalls": "工具箱 · 规则实验室 ③", "ai_review": "我的账户 · 个股 AI 体检（登录后）",
-                "research": "我的账户 · 个股研究（登录后）"}
+                "pitfalls": "工具箱 · 规则实验室 ③", "ai_review": "AI 研究 · 每日持仓体检（登录后）",
+                "research": "AI 研究 · 个股研究和问答（登录后）"}
 
 
 def feature_map():

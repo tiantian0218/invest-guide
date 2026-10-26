@@ -1,9 +1,14 @@
 [theme]
 base = "light"
-primaryColor = "#d62728"
-backgroundColor = "#ffffff"
-secondaryBackgroundColor = "#f5f6f8"
-textColor = "#1f2328"
+primaryColor = "#0d1b2e"
+backgroundColor = "#f7f8fa"
+secondaryBackgroundColor = "#eef1f5"
+textColor = "#0d1b2e"
+linkColor = "#1d4ed8"
+borderColor = "#e4e8ef"
+baseRadius = "10px"
+font = "PingFang SC, -apple-system, BlinkMacSystemFont, Hiragino Sans GB, Microsoft YaHei, Helvetica Neue, sans-serif"
+headingFont = "Songti SC, STSong, Noto Serif SC, Source Han Serif SC, SimSun, serif"
 
 [browser]
 gatherUsageStats = false
