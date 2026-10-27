@@ -26,6 +26,16 @@ CSS = f"""
 .stApp button[data-baseweb="tab"][aria-selected="true"] p {{ color: {INK}; }}
 .stApp [data-baseweb="tab-highlight"] {{ background-color: {BRASS} !important; height: 2px; }}
 .stApp [data-baseweb="tab-border"] {{ display: none; }}
+[data-testid="stLayoutWrapper"]:has(> .st-key-topnav) {{ position: sticky; top: 0; z-index: 50; background: #f7f8fa;
+                                                         border-bottom: 1px solid {LINE}; }}
+.st-key-topnav [role="radiogroup"] {{ gap: 2px; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }}
+.st-key-topnav [role="radiogroup"]::-webkit-scrollbar {{ display: none; }}
+.st-key-topnav label[data-baseweb="radio"] {{ margin: 0; padding: 12px 14px 10px; border-bottom: 2px solid transparent;
+                                          white-space: nowrap; cursor: pointer; }}
+.st-key-topnav label[data-baseweb="radio"] > div:first-child {{ display: none; }}
+.st-key-topnav label[data-baseweb="radio"] p {{ font-size: 16px; font-weight: 600; color: {MUTED}; }}
+.st-key-topnav label[data-baseweb="radio"]:has(input:checked) {{ border-bottom-color: {BRASS}; }}
+.st-key-topnav label[data-baseweb="radio"]:has(input:checked) p {{ color: {INK}; }}
 .ui-num {{ font-family: {NUM}; font-variant-numeric: tabular-nums; letter-spacing: .2px; }}
 .ui-brand {{ margin: 0 0 14px; }}
 .ui-brand .eyebrow {{ font-size: 12px; letter-spacing: 3px; color: {BRASS_DEEP}; font-weight: 600; }}
@@ -90,6 +100,8 @@ table.ui-table tr:last-child td {{ border-bottom: none; }}
 @media (max-width: 640px) {{
   .stApp button[data-baseweb="tab"] {{ padding: 10px 9px 8px; }}
   .stApp button[data-baseweb="tab"] p {{ font-size: 14.5px; }}
+  .st-key-topnav label[data-baseweb="radio"] {{ padding: 10px 9px 8px; }}
+  .st-key-topnav label[data-baseweb="radio"] p {{ font-size: 14.5px; }}
   .ui-brand .title {{ font-size: 25px; }}
   .ui-day {{ gap: 13px; padding: 16px 14px 10px; }}
   .ui-day .date {{ min-width: 48px; padding-right: 12px; }}
@@ -107,6 +119,21 @@ def css():
 
 def esc(x):
     return html.escape(str(x))
+
+
+def pills(label, options, key, default=None, where=st, **kw):
+    """分段按钮：再点一次当前项不会取消选中；离开这一页再回来，仍是上次选的那项。"""
+    options, last = list(options), f"_{key}_last"
+    fallback = default if default in options else options[0]
+    if st.session_state.get(key) not in options:
+        st.session_state[key] = st.session_state.get(last) if st.session_state.get(last) in options else fallback
+
+    def keep():
+        if st.session_state.get(key) is None:
+            st.session_state[key] = st.session_state.get(last, fallback)
+    value = where.segmented_control(label, options, key=key, on_change=keep, **kw) or fallback
+    st.session_state[last] = value
+    return value
 
 
 def brand(title, tagline, eyebrow="天天的定投笔记"):

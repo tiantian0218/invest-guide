@@ -328,7 +328,7 @@ def render(s):
 
     ui.section("收益与风险预期：放多久，可能变成多少", "涨和跌都算给你看，先想清楚最坏情况，真遇到时才拿得住")
     a, b = st.columns([1, 1])
-    mode = a.segmented_control("投入方式", ["一次性投入", "每月定投"], default="一次性投入", key="today_mode")
+    mode = ui.pills("投入方式", ["一次性投入", "每月定投"], key="today_mode", where=a)
     dca = mode == "每月定投"
     default = 2000 if dca else int(round(total or 10_000, -2))
     amount = b.number_input("每月投入（元）" if dca else "投入多少钱（元）", 100, 10_000_000, default, step=500,

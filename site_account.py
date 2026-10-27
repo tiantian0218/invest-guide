@@ -305,8 +305,7 @@ def _account_body(s):
         st.markdown("这个账户还没有记录。" if readonly else
                     "还没有记录。钱到账后先在下面**记一笔入金**，买入成交后**记一笔成交**。")
         views = ["记账"] + ([] if readonly else ["自动记账与共享"])
-        view = st.segmented_control("看什么", views, default="记账", key="acct_view_empty",
-                                    label_visibility="collapsed") or "记账"
+        view = ui.pills("看什么", views, key="acct_view_empty", default="记账", label_visibility="collapsed")
     else:
         pnl_usd = sm["total"] - sm["in_usd"]
         pct_usd = pnl_usd / sm["in_usd"] * 100 if sm["in_usd"] else 0.0
@@ -331,8 +330,7 @@ def _account_body(s):
                        unsafe_allow_html=True)
             c.markdown(_card("可用现金", _money(sm["cash"]), "美元"), unsafe_allow_html=True)
         views = ["持仓", "复盘", "记账"] + ([] if readonly else ["自动记账与共享"])
-        view = st.segmented_control("看什么", views, default="持仓", key="acct_view",
-                                    label_visibility="collapsed") or "持仓"
+        view = ui.pills("看什么", views, key="acct_view", default="持仓", label_visibility="collapsed")
         if view == "持仓" and len(pos):
             rate = usdcny or 0
             rows = []
@@ -431,8 +429,8 @@ def _mail_guide():
 
 
 def _features(items):
-    width = 240 if len(items) % 2 == 0 else 180
-    st.markdown(f'<div class="ui-feats" style="grid-template-columns:repeat(auto-fit,minmax({width}px,1fr))">' + "".join(
+    width = 300 if len(items) % 2 == 0 else 180
+    st.markdown(f'<div class="ui-feats" style="grid-template-columns:repeat(auto-fit,minmax(min(100%,{width}px),1fr))">' + "".join(
         f'<div class="ui-feat"><div class="k">{a}</div><div class="t">{b}</div><div class="d">{c}</div></div>'
         for a, b, c in items) + "</div>", unsafe_allow_html=True)
 

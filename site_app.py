@@ -78,15 +78,20 @@ site_ui.css()
 site_ui.brand("美股指数定投入门", "低成本买下美国最大的几百家公司，然后交给时间")
 
 SESSION = site_account.current_session()
-tab_today, tab_acct, tab_ai, tab_learn, tab_tools = st.tabs(["今天", "我的账户", "AI 研究", "看懂市场", "工具箱"])
 
-with tab_today:
+# 不用 st.tabs：它不记得选中的页，任何控件触发重跑都可能跳回第一页。
+PAGES = {"today": "今天", "account": "我的账户", "ai": "AI 研究", "learn": "看懂市场", "tools": "工具箱"}
+if "nav" not in st.session_state:
+    st.session_state.nav = PAGES.get(st.query_params.get("p"), "今天")
+with st.container(key="topnav"):
+    page = st.radio("页面", list(PAGES.values()), key="nav", horizontal=True, label_visibility="collapsed")
+st.query_params["p"] = next(k for k, v in PAGES.items() if v == page)
+
+if page == "今天":
     site_today.render(SESSION)
-
-with tab_acct:
+elif page == "我的账户":
     site_account.account_tab(SESSION)
-
-with tab_ai:
+elif page == "AI 研究":
     site_account.ai_tab(SESSION if cloud_api.enabled() else None)
 
 
@@ -134,7 +139,7 @@ def market_tab():
         st.markdown(f"- **VIX 恐慌指数** {vix:.1f}（20 以下算平静，30 以上算恐慌）\n- **美国 10 年期国债收益率** {tnx:.2f}%（越高，股票估值压力越大）")
 
 
-with tab_learn:
+if page == "看懂市场":
     st.subheader("市场温度")
     market_tab()
     site_macro.render(learn_only=True)
@@ -223,9 +228,9 @@ def pick_tab():
 
 TOOLS = {"定投计算器": calc_tab, "规则实验室": site_lab.render, "历史数据": hist_tab, "选股参考": pick_tab, "入门手册": guide_tab,
          "功能地图": site_ui.feature_map}
-with tab_tools:
-    pick = st.segmented_control("工具", list(TOOLS), default="定投计算器", label_visibility="collapsed")
-    TOOLS[pick or "定投计算器"]()
+if page == "工具箱":
+    pick = site_ui.pills("工具", TOOLS, key="tool", label_visibility="collapsed")
+    TOOLS[pick]()
 
 st.divider()
 st.caption("所有数据来自真实历史行情；历史不代表未来。本网站只提供信息和计算工具，不构成投资建议，"
