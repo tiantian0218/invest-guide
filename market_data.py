@@ -18,7 +18,27 @@ def _yahoo(tickers, period):
         return pd.DataFrame()
     if isinstance(d, pd.Series):
         d = d.to_frame(tickers[0])
-    return d[[t for t in d if d[t].notna().any()]]
+    return _norm(d[[t for t in d if d[t].notna().any()]])
+
+
+def _norm(d):
+    """统一成不带时区的日期索引，否则 Yahoo / 纳斯达克 / 缓存的数据拼在一起会变成混合索引。"""
+    idx = pd.to_datetime(d.index)
+    if idx.tz is not None:
+        idx = idx.tz_localize(None)
+    d.index = idx.normalize()
+    return d[~d.index.duplicated(keep="last")]
+
+
+def expected_session(holidays=()):
+    """最近一个已经收盘的美股交易日（美东日期）。收盘后 30 分钟内仍算前一个交易日。"""
+    et = pd.Timestamp.now(tz="America/New_York")
+    d = et.normalize().tz_localize(None)
+    if (et.hour, et.minute) < (16, 30):
+        d -= pd.Timedelta(days=1)
+    while d.weekday() >= 5 or d in holidays:
+        d -= pd.Timedelta(days=1)
+    return d
 
 
 def _nasdaq(ticker, days):
@@ -36,7 +56,7 @@ def _nasdaq(ticker, days):
             rows = []
         if rows:
             s = pd.Series({pd.Timestamp(r["date"]): float(r["close"].replace("$", "").replace(",", "")) for r in rows})
-            return s.sort_index().rename(ticker)
+            return _norm(s.sort_index().rename(ticker).to_frame())[ticker]
     return None
 
 
@@ -58,14 +78,24 @@ def closes(tickers, period="2y"):
         s = _nasdaq(t, days)
         if s is not None:
             got = pd.concat([got, s], axis=1)
-    got = got.sort_index()
+    got = _norm(got).sort_index().dropna(how="all")
     stale = False
+    if len(got.columns):
+        newest = max(got[t].last_valid_index() for t in got)
+        for t in [t for t in got if got[t].last_valid_index() < newest and not t.startswith("^")]:
+            s = _nasdaq(t, days)
+            if s is not None and s.index.max() >= newest:
+                got[t] = got[t].combine_first(s)
+        lagging = [t for t in got if got[t].last_valid_index() < newest]
+        if lagging:
+            print(f"行情不全：{'、'.join(lagging)} 最新只到 {min(got[t].last_valid_index() for t in lagging):%m-%d}")
+            stale = True
     missing = [t for t in tickers if t not in got]
     if missing and CACHE.exists():
         old = pd.read_csv(CACHE, index_col=0, parse_dates=True)
         for t in missing:
             if t in old:
-                got = pd.concat([got, old[t]], axis=1)
+                got = pd.concat([got, _norm(old[[t]])], axis=1)
                 stale = True
     if len(got.columns) and not stale:
         old = pd.read_csv(CACHE, index_col=0, parse_dates=True) if CACHE.exists() else pd.DataFrame()
